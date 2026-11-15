@@ -20,8 +20,11 @@ import {
 function localLayoutApi() {
   const file = path.resolve('.dev-layouts.json')
   const read = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return {} } }
-  const write = (data) => { try { fs.writeFileSync(file, JSON.stringify(data, null, 2)) } catch { /* ignore */ } }
+  const write = (data) => {
+    try { fs.writeFileSync(file, JSON.stringify(data, null, 2)) } catch (err) { console.error('[localLayoutApi]', err) }
+  }
   let writeChain = Promise.resolve()
+  const MAX_BYTES = 2_000_000
 
   return {
     name: 'local-layout-api',
@@ -35,58 +38,86 @@ function localLayoutApi() {
 
         const parsedUrl = new URL(req.originalUrl || req.url || '/', 'http://localhost')
         const room = roomOf(parsedUrl.searchParams.get('room'))
+        const isShared = room === 'default'
 
         if (req.method === 'GET') {
-          const store = read()
-          store.__ver ??= {}
-          store.__live ??= {}
-          store.__lib ??= {}
+          writeChain = writeChain.then(async () => {
+            const store = read()
+            store.__ver ??= {}
+            store.__live ??= {}
+            store.__lib ??= {}
 
-          let ver = store.__ver[room]
-          if (!ver) {
-            ver = formatVer(newTag('d'), newTag('l'))
-            store.__ver[room] = ver
-            write(store)
-          }
+            let ver = store.__ver[room]
+            if (!ver) {
+              ver = formatVer(newTag('d'), newTag('l'))
+              store.__ver[room] = ver
+              write(store)
+            }
 
-          const lite = parsedUrl.searchParams.has('lite')
-          const reqVer = parsedUrl.searchParams.get('v')
+            const lite = parsedUrl.searchParams.has('lite') || isShared
+            const reqVer = parsedUrl.searchParams.get('v')
 
-          const result = await buildLayoutGetResponse({
-            reqVer,
-            curVer: String(ver),
-            lite,
-            isShared: false,
-            getMain: async () => {
-              const raw = store[room]
-              if (raw && 'layouts' in raw) {
-                const { layouts, ...rest } = raw
-                if (store.__lib[room] === undefined) store.__lib[room] = layouts ?? []
-                store[room] = rest
-                write(store)
-                return rest
-              }
-              return raw || {}
-            },
-            getLive: async () => store.__live[room] || {},
-            getLib: async () => store.__lib[room] ?? store[room]?.layouts,
+            const result = await buildLayoutGetResponse({
+              reqVer,
+              curVer: String(ver),
+              lite,
+              isShared,
+              getMain: async () => {
+                const raw = store[room]
+                if (raw && typeof raw === 'object' && 'layouts' in raw) {
+                  const { layouts, ...rest } = raw
+                  if (!isShared && store.__lib[room] === undefined) store.__lib[room] = layouts ?? []
+                  store[room] = rest
+                  write(store)
+                  return rest
+                }
+                return raw || {}
+              },
+              getLive: async () => store.__live[room] || {},
+              getLib: async () => store.__lib[room] ?? store[room]?.layouts,
+            })
+
+            if (result.status === 204) {
+              res.statusCode = 204
+              return res.end()
+            }
+            res.setHeader('Content-Type', 'application/json')
+            return res.end(JSON.stringify(result.body))
+          }).catch((err) => {
+            console.error('[localLayoutApi GET]', err)
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ error: 'Internal server error' }))
           })
-
-          if (result.status === 204) {
-            res.statusCode = 204
-            return res.end()
-          }
-          res.setHeader('Content-Type', 'application/json')
-          return res.end(JSON.stringify(result.body))
+          return
         }
 
         if (req.method === 'POST') {
           let body = ''
-          req.on('data', c => { body += c })
+          let tooLarge = false
+          req.on('data', c => {
+            if (tooLarge) return
+            body += c
+            if (body.length > MAX_BYTES) tooLarge = true
+          })
           req.on('end', () => {
+            if (tooLarge) {
+              res.statusCode = 413
+              res.setHeader('Content-Type', 'application/json')
+              return res.end(JSON.stringify({ error: 'Payload too large' }))
+            }
+            let data = {}
+            try { data = JSON.parse(body || '{}') } catch {
+              res.statusCode = 400
+              res.setHeader('Content-Type', 'application/json')
+              return res.end(JSON.stringify({ error: 'Invalid JSON body' }))
+            }
+            if (!data || typeof data !== 'object' || Array.isArray(data)) {
+              res.statusCode = 400
+              res.setHeader('Content-Type', 'application/json')
+              return res.end(JSON.stringify({ error: 'Request body must be a JSON object' }))
+            }
             writeChain = writeChain.then(() => {
-              let data = {}
-              try { data = JSON.parse(body || '{}') } catch { /* ignore */ }
               const store = read()
               store.__ver ??= {}
               store.__live ??= {}
@@ -100,7 +131,7 @@ function localLayoutApi() {
                   curVer: store.__ver[room] || '',
                 },
                 data,
-                { isShared: false, nowMs: Date.now() },
+                { isShared, nowMs: Date.now() },
               )
 
               if (plan.writeMain) store[room] = plan.nextMain
@@ -117,9 +148,10 @@ function localLayoutApi() {
                 ...(plan.writeLive ? { live: plan.nextLive } : {}),
               }))
             }).catch((err) => {
+              console.error('[localLayoutApi POST]', err)
               res.statusCode = 500
               res.setHeader('Content-Type', 'application/json')
-              res.end(JSON.stringify({ error: err.message }))
+              res.end(JSON.stringify({ error: 'Internal server error' }))
             })
           })
           return
@@ -169,8 +201,9 @@ function localScoresApi(token, competition) {
           cache = { at: now, payload }
           res.end(JSON.stringify(payload))
         } catch (e) {
+          console.error('[localScoresApi]', e)
           if (cache) return res.end(JSON.stringify(cache.payload)) // serve stale on error
-          res.end(JSON.stringify({ configured: true, error: e.message, updatedAt: now, matches: [] }))
+          res.end(JSON.stringify({ configured: true, error: 'Failed to load match feed', updatedAt: now, matches: [] }))
         }
       })
     },
@@ -183,9 +216,17 @@ function localScoresApi(token, competition) {
 function localUsageApi() {
   const file = path.resolve('.dev-usage.json')
   const read = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return { loads: {}, uniq: {}, rooms: [] } } }
-  const write = (d) => { try { fs.writeFileSync(file, JSON.stringify(d, null, 2)) } catch { /* ignore */ } }
-  const clean = (r) => String(r || 'default').slice(0, 64).replace(/[^\w.-]/g, '_')
+  const write = (d) => {
+    try { fs.writeFileSync(file, JSON.stringify(d, null, 2)) } catch (err) { console.error('[localUsageApi]', err) }
+  }
+  const FORBIDDEN = new Set(['__proto__', 'constructor', 'prototype', '_all'])
+  const clean = (r) => {
+    const c = String(r || '').trim().slice(0, 64).replace(/[^\w.-]/g, '_')
+    return !c || FORBIDDEN.has(c) ? 'default' : c
+  }
   const day = () => new Date().toISOString().slice(0, 10)
+  let usageChain = Promise.resolve()
+  const MAX_BYTES = 100_000
   return {
     name: 'local-usage-api',
     configureServer(server) {
@@ -193,29 +234,50 @@ function localUsageApi() {
         res.setHeader('Access-Control-Allow-Origin', '*')
         if (req.method === 'OPTIONS') { res.statusCode = 204; return res.end() }
         res.setHeader('Content-Type', 'application/json')
-        const store = read()
-        store.loads ??= {}; store.uniq ??= {}; store.rooms ??= []
 
         if (req.method === 'POST') {
           let body = ''
-          req.on('data', c => { body += c })
+          let tooLarge = false
+          req.on('data', c => {
+            if (tooLarge) return
+            body += c
+            if (body.length > MAX_BYTES) tooLarge = true
+          })
           req.on('end', () => {
-            let d = {}; try { d = JSON.parse(body || '{}') } catch { /* ignore */ }
-            const room = clean(d.room), today = day()
-            for (const scope of [room, '_all']) {
-              const lk = `${scope}:${today}`
-              store.loads[lk] = (store.loads[lk] || 0) + 1
-              if (d.uid) { store.uniq[lk] ??= []; if (!store.uniq[lk].includes(d.uid)) store.uniq[lk].push(d.uid) }
+            if (tooLarge) { res.statusCode = 413; return res.end(JSON.stringify({ error: 'Payload too large' })) }
+            let d = {}
+            try { d = JSON.parse(body || '{}') } catch {
+              res.statusCode = 400
+              return res.end(JSON.stringify({ error: 'Invalid JSON body' }))
             }
-            if (!store.rooms.includes(room)) store.rooms.push(room)
-            write(store)
-            res.end(JSON.stringify({ ok: true }))
+            if (!d || typeof d !== 'object' || Array.isArray(d)) {
+              res.statusCode = 400
+              return res.end(JSON.stringify({ error: 'Invalid request body' }))
+            }
+            usageChain = usageChain.then(() => {
+              const store = read()
+              store.loads ??= {}; store.uniq ??= {}; store.rooms ??= []
+              const room = clean(d.room), today = day()
+              for (const scope of [room, '_all']) {
+                const lk = `${scope}:${today}`
+                store.loads[lk] = (store.loads[lk] || 0) + 1
+                if (d.uid) { store.uniq[lk] ??= []; if (!store.uniq[lk].includes(d.uid)) store.uniq[lk].push(d.uid) }
+              }
+              if (!store.rooms.includes(room)) store.rooms.push(room)
+              write(store)
+              res.end(JSON.stringify({ ok: true }))
+            }).catch(() => {
+              res.statusCode = 500
+              res.end(JSON.stringify({ error: 'Internal server error' }))
+            })
           })
           return
         }
 
         if (req.method === 'GET') {
-          const url = new URL(req.url, 'http://localhost')
+          const url = new URL(req.originalUrl || req.url || '/', 'http://localhost')
+          const store = read()
+          store.loads ??= {}; store.uniq ??= {}; store.rooms ??= []
           const days = Math.min(90, Math.max(1, parseInt(url.searchParams.get('days'), 10) || 14))
           const dates = []
           for (let i = days - 1; i >= 0; i--) { const dt = new Date(); dt.setUTCDate(dt.getUTCDate() - i); dates.push(dt.toISOString().slice(0, 10)) }
@@ -229,7 +291,7 @@ function localUsageApi() {
             res.end(JSON.stringify({ rooms: store.rooms.length, days, totalLoads, today: byDay[dates[dates.length - 1]], byDay }))
             return
           }
-          const targets = ['_all', ...store.rooms.filter(r => r !== '_all')]
+          const targets = ['_all', ...store.rooms.filter(r => r && !FORBIDDEN.has(r))]
           const rooms = {}
           for (const room of targets) {
             const byDay = {}; let total = 0
@@ -260,6 +322,10 @@ export default defineConfig(({ mode }) => {
       localScoresApi(env.FOOTBALL_DATA_TOKEN, env.FOOTBALL_DATA_COMPETITION || 'WC'),
       localUsageApi(),
     ],
+    // Keep the browser target used by the previous build for OBS browser sources.
+    build: {
+      target: ['es2020', 'chrome87', 'edge88', 'firefox78', 'safari14'],
+    },
     server: {
       port: PORTS.FRONTEND,
       strictPort: true, // Fail if port is already in use instead of silently picking another

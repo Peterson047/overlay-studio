@@ -18,10 +18,15 @@
  * Search Console shows, and bump REVIEWED (used as the sitemap lastmod).
  */
 
-export const REVIEWED = '2026-11-09';
+export const REVIEWED = '2026-11-15';
+
+const rawSiteHost = process.env.SITE_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || '';
+const resolvedSiteHost = rawSiteHost
+    ? (/^https?:\/\//i.test(rawSiteHost) ? rawSiteHost : `https://${rawSiteHost}`).replace(/\/+$/, '')
+    : '';
 
 export const SITE = {
-    host: process.env.SITE_URL?.replace(/\/+$/, '') || '',
+    host: resolvedSiteHost,
     // Say the brand the same way everywhere so Google ties the name to this
     // site, not to other tools called "qorpStreamer".
     brand: 'qorpStreamer',

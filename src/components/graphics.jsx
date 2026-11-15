@@ -1261,7 +1261,7 @@ const ViceBeach = ({ a, b, panel, dusk = false }) => {
                 return (
                     <div key={i} style={{
                         position: 'absolute', left: 960 + (rand(i, 383) - 0.5) * spread * 2 - 30, top: y, width: 40 + rand(i, 384) * 60, height: dusk ? 2 : 4, borderRadius: 2, opacity: dusk ? 0.3 : 1,
-                        background: i % 4 ? '#ffd9a0' : b, animation: `twinkle ${1.5 + rand(i, 385) * 2}s ease-in-out ${-rand(i, 386) * 3}s infinite`,
+                        background: i % 4 ? '#ffd9a0' : b, animation: dusk ? 'none' : `twinkle ${1.5 + rand(i, 385) * 2}s ease-in-out ${-rand(i, 386) * 3}s infinite`,
                     }} />
                 );
             })}
@@ -1279,7 +1279,6 @@ const ViceDusk = (props) => <ViceBeach {...props} dusk />;
 
 // Netherrack ceiling and floor, a glowing lava sea, falling ash and rising
 // sparks (Minecraft Nether-style).
-
 const Nether = ({ a, b }) => {
     const S = 48, cells = [];
     for (let i = 0; i * S < 1920; i++) {
@@ -1841,7 +1840,8 @@ export const holeMask = (holes, frame = { x: 0, y: 0, w: 100, h: 100 }) => {
 // Inset a `frame` hole box past its opaque chrome (window titlebar, pixel/brutal
 // bevel/shadow, borders) so the cutout reveals only the inner capture aperture.
 export const frameHoleGeometry = (e, theme) => {
-    const fs = e.frameStyle === '@frame' ? (theme?.frameStyle ?? 'solid') : (e.frameStyle ?? 'solid');
+    const fs = (e.frameStyle == null || e.frameStyle === '@frame') ? (theme?.frameStyle ?? 'solid') : e.frameStyle;
+    const box = e.box ?? { x: 0, y: 0, w: 0, h: 0 };
     const baseRadius = typeof e.borderRadius === 'number' ? e.borderRadius : (theme?.cornerRadius ?? 0);
     const w = e.borderWidth ?? 4;
 
@@ -1885,11 +1885,11 @@ export const frameHoleGeometry = (e, theme) => {
     const dxR = (right / CANVAS_W) * 100;
     const dyT = (top / CANVAS_H) * 100;
     const dyB = (bottom / CANVAS_H) * 100;
-    const bw = Math.max(0, e.box.w - dxL - dxR);
-    const bh = Math.max(0, e.box.h - dyT - dyB);
+    const bw = Math.max(0, box.w - dxL - dxR);
+    const bh = Math.max(0, box.h - dyT - dyB);
 
     return {
-        box: { x: e.box.x + dxL, y: e.box.y + dyT, w: bw, h: bh },
+        box: { x: box.x + dxL, y: box.y + dyT, w: bw, h: bh },
         shape: 'rect',
         radius,
     };

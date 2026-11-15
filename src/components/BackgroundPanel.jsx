@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- background presets and style helpers live beside BackgroundPanel */
 import { RefreshCw, Upload, X } from 'lucide-react';
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { scaleImageFile } from '../utils/imageScale.js';
 
 // ── Presets ────────────────────────────────────────────────────────────────
@@ -22,14 +22,27 @@ export const PRESETS = [
 ];
 
 // ── Compute CSS background from config ─────────────────────────────────────
+const safeCssUrl = (raw) => {
+    if (typeof raw !== 'string') return null;
+    const s = raw.trim();
+    if (!s || /[\r\n<>]/.test(s)) return null;
+    const ok = /^https?:\/\//i.test(s)
+        || /^\/(?!\/)/.test(s)
+        || /^data:image\/(?:png|jpe?g|webp|gif);base64,[a-z0-9+/=]+$/i.test(s);
+    if (!ok) return null;
+    return s.replace(/["\\]/g, '\\$&');
+};
+
 export const bgToCss = (bg) => {
     if (!bg || bg.type === 'transparent') return 'transparent';
     if (bg.type === 'solid')    return bg.color;
     if (bg.type === 'gradient') return `linear-gradient(${bg.dir ?? '135deg'}, ${bg.from}, ${bg.to})`;
     if (bg.type === 'image' && bg.src) {
+        const url = safeCssUrl(bg.src);
+        if (!url) return 'transparent';
         return bg.overlay
-            ? `linear-gradient(rgba(0,0,0,${bg.overlayOpacity ?? 0.3}), rgba(0,0,0,${bg.overlayOpacity ?? 0.3})), url("${bg.src}")`
-            : `url("${bg.src}")`;
+            ? `linear-gradient(rgba(0,0,0,${bg.overlayOpacity ?? 0.3}), rgba(0,0,0,${bg.overlayOpacity ?? 0.3})), url("${url}")`
+            : `url("${url}")`;
     }
     return 'transparent';
 };
@@ -40,11 +53,13 @@ export const bgToStyle = (bg) => {
     if (bg.type === 'solid')    return { background: bg.color };
     if (bg.type === 'gradient') return { background: `linear-gradient(${bg.dir ?? '135deg'}, ${bg.from}, ${bg.to})` };
     if (bg.type === 'image' && bg.src) {
+        const url = safeCssUrl(bg.src);
+        if (!url) return {};
         const repeat = bg.size === 'repeat';
         return {
             backgroundImage: bg.overlay
-                ? `linear-gradient(rgba(0,0,0,${bg.overlayOpacity ?? 0.3}), rgba(0,0,0,${bg.overlayOpacity ?? 0.3})), url("${bg.src}")`
-                : `url("${bg.src}")`,
+                ? `linear-gradient(rgba(0,0,0,${bg.overlayOpacity ?? 0.3}), rgba(0,0,0,${bg.overlayOpacity ?? 0.3})), url("${url}")`
+                : `url("${url}")`,
             backgroundSize: repeat ? 'auto' : (bg.size ?? 'cover'),
             backgroundPosition: 'center',
             backgroundRepeat: repeat ? 'repeat' : 'no-repeat',
@@ -102,6 +117,18 @@ const DIRS = [
 // ── Main panel ─────────────────────────────────────────────────────────────
 const BackgroundPanel = ({ bg, onChange, onClose }) => {
     const fileRef = useRef(null);
+    const [narrow, setNarrow] = useState(() => (
+        typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+            ? window.matchMedia('(max-width: 759px)').matches
+            : false
+    ));
+    useEffect(() => {
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+        const mq = window.matchMedia('(max-width: 759px)');
+        const update = (e) => setNarrow(e.matches);
+        mq.addEventListener?.('change', update);
+        return () => mq.removeEventListener?.('change', update);
+    }, []);
     const current = bg ?? { type: 'transparent' };
 
     const set = (updates) => onChange({ ...current, ...updates });
@@ -146,15 +173,19 @@ const BackgroundPanel = ({ bg, onChange, onClose }) => {
     return (
         <div style={{
             position: 'absolute',
-            left: 248, top: 48,
+            left: narrow ? 12 : 248,
+            top: narrow ? 104 : 60,
             width: 240,
+            maxWidth: 'calc(100vw - 24px)',
+            maxHeight: narrow ? 'calc(100vh - 116px)' : 'calc(100vh - 72px)',
+            overflowY: 'auto',
+            overflowX: 'hidden',
             background: 'rgba(9,9,18,0.94)',
             backdropFilter: 'blur(14px)',
             border: '1px solid rgba(255,255,255,0.07)',
             borderRadius: 12,
-            zIndex: 350,
+            zIndex: 375,
             boxShadow: '0 8px 32px rgba(0,0,0,0.65)',
-            overflow: 'hidden',
         }}>
             {/* Header */}
             <div style={{

@@ -22,7 +22,7 @@ function sendToOverlay(type, payload) {
     };
 }
 
-chrome.contextMenus.onClicked.addListener((info, tab) => {
+chrome.contextMenus.onClicked.addListener((info, _tab) => {
     if (info.menuItemId === "send_to_overlay") {
         let payload = "";
         let type = "text";

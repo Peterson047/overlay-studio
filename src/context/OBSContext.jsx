@@ -1,12 +1,14 @@
 import OBSWebSocket from 'obs-websocket-js';
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { frameHoleGeometry } from '../components/graphics';
 
 const OBSContext = createContext(null);
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const useOBS = () => useContext(OBSContext);
 
-const RETRY_INTERVAL = 5000; // ms between reconnect attempts
+const INITIAL_RETRY_INTERVAL = 5000; // ms before first reconnect attempt
+const MAX_RETRY_INTERVAL = 30000;
 const CONFIG_STORAGE_KEY = 'obs_ws_config';
 const CAPTURE_SCALED_KEY = 'obs_capture_scaled';
 const BASELINE_STORAGE_KEY = 'obs_transform_baselines';
@@ -44,8 +46,13 @@ const isCaptureItem = (name, kind) => {
     return CAPTURE_KIND.test(k) || CAPTURE_NAME.test(n);
 };
 
-const findCaptureHoles = (elements = []) =>
-    elements.filter((e) => e?.type === 'frame' && e?.hole && !e?.hidden && e?.box);
+const findCaptureHoles = (elements = [], theme) =>
+    elements
+        .filter((e) => e?.type === 'frame' && e?.hole && !e?.hidden && e?.box)
+        .map((e) => ({
+            ...e,
+            box: frameHoleGeometry(e, theme).box,
+        }));
 
 const sourceKey = (sceneName, sceneItemId, sourceName) =>
     `${sceneName}::${sceneItemId ?? ''}::${sourceName}`;
@@ -318,35 +325,33 @@ const restoreItemBaseline = async (
 
     let restoredOk = false;
     try {
-        if (isCapture) {
-            if (saved && typeof saved.boundsType === 'string') {
-                const restoreTransform = {
-                    alignment: saved.alignment ?? 5,
-                    positionX: saved.positionX ?? 0,
-                    positionY: saved.positionY ?? 0,
-                    boundsType: saved.boundsType,
-                    boundsAlignment: saved.boundsAlignment ?? 0,
-                    ...cropRotation,
-                };
-                if (saved.boundsType === 'OBS_BOUNDS_NONE') {
-                    if (typeof saved.scaleX === 'number' && saved.scaleX > 0) restoreTransform.scaleX = saved.scaleX;
-                    if (typeof saved.scaleY === 'number' && saved.scaleY > 0) restoreTransform.scaleY = saved.scaleY;
-                } else {
-                    restoreTransform.boundsWidth = Math.max(1, saved.boundsWidth || baseWidth);
-                    restoreTransform.boundsHeight = Math.max(1, saved.boundsHeight || baseHeight);
-                    if (typeof saved.cropToBounds === 'boolean') restoreTransform.cropToBounds = saved.cropToBounds;
-                }
-                try {
-                    await setSceneItemTransformSafe(obs, sceneName, sceneItemId, restoreTransform);
-                    restoredOk = true;
-                } catch {
-                    await setSceneItemTransformSafe(obs, sceneName, sceneItemId, fullscreenRestore);
-                    restoredOk = true;
-                }
+        if (saved && typeof saved.boundsType === 'string') {
+            const restoreTransform = {
+                alignment: saved.alignment ?? 5,
+                positionX: saved.positionX ?? 0,
+                positionY: saved.positionY ?? 0,
+                boundsType: saved.boundsType,
+                boundsAlignment: saved.boundsAlignment ?? 0,
+                ...cropRotation,
+            };
+            if (saved.boundsType === 'OBS_BOUNDS_NONE') {
+                if (typeof saved.scaleX === 'number' && saved.scaleX > 0) restoreTransform.scaleX = saved.scaleX;
+                if (typeof saved.scaleY === 'number' && saved.scaleY > 0) restoreTransform.scaleY = saved.scaleY;
             } else {
-                await setSceneItemTransformSafe(obs, sceneName, sceneItemId, fullscreenRestore);
+                restoreTransform.boundsWidth = Math.max(1, saved.boundsWidth || baseWidth);
+                restoreTransform.boundsHeight = Math.max(1, saved.boundsHeight || baseHeight);
+                if (typeof saved.cropToBounds === 'boolean') restoreTransform.cropToBounds = saved.cropToBounds;
+            }
+            try {
+                await setSceneItemTransformSafe(obs, sceneName, sceneItemId, restoreTransform);
+                restoredOk = true;
+            } catch {
+                await setSceneItemTransformSafe(obs, sceneName, sceneItemId, isCapture ? fullscreenRestore : cropRotation);
                 restoredOk = true;
             }
+        } else if (isCapture) {
+            await setSceneItemTransformSafe(obs, sceneName, sceneItemId, fullscreenRestore);
+            restoredOk = true;
         } else if (saved) {
             await setSceneItemTransformSafe(obs, sceneName, sceneItemId, cropRotation);
             restoredOk = true;
@@ -417,16 +422,29 @@ const placeCamerasInScene = async (
 
     const cameras = [];
     const captures = [];
-    const classify = (it, targetSceneName, inGroup) => {
+    const mixedGroups = [];
+    const enabledParentGroups = new Set();
+    const classify = (it, targetSceneName, inGroup, parentGroupItem = null) => {
         if (it?.isGroup) return;
         const kind = it?.inputKind || (it?.sourceType === 'OBS_SOURCE_TYPE_SCENE' ? 'scene' : '');
-        if (isCameraItem(it?.sourceName, kind)) cameras.push({ ...it, targetSceneName, inGroup });
-        else if (isCaptureItem(it?.sourceName, kind)) captures.push({ ...it, targetSceneName, inGroup });
+        if (isCameraItem(it?.sourceName, kind)) cameras.push({ ...it, targetSceneName, inGroup, parentGroupItem });
+        else if (isCaptureItem(it?.sourceName, kind)) captures.push({ ...it, targetSceneName, inGroup, parentGroupItem });
+    };
+
+    const ensureParentGroupEnabled = async (item) => {
+        const pg = item?.parentGroupItem;
+        if (!pg || pg.sceneItemEnabled !== false || enabledParentGroups.has(pg.sceneItemId)) return;
+        enabledParentGroups.add(pg.sceneItemId);
+        await obs.call('SetSceneItemEnabled', {
+            sceneName,
+            sceneItemId: pg.sceneItemId,
+            sceneItemEnabled: true,
+        });
     };
 
     for (const it of sceneItems) {
         if (!it.isGroup) {
-            classify(it, sceneName, false);
+            classify(it, sceneName, false, null);
         } else {
             try {
                 const { sceneItems: groupItems } = await obs.call('GetGroupSceneItemList', {
@@ -437,9 +455,13 @@ const placeCamerasInScene = async (
                 // When a group holds only captures (no cameras), scale the group item in THIS
                 // OBS scene instead of reaching inside and mutating the shared group globally.
                 if (gCaps.length > 0 && gCams.length === 0) {
-                    captures.push({ ...it, targetSceneName: sceneName, inGroup: false });
+                    captures.push({ ...it, targetSceneName: sceneName, inGroup: false, parentGroupItem: null });
                 } else {
-                    for (const git of groupItems) classify(git, it.sourceName, true);
+                    if (gCams.length > 0 && gCaps.length > 0) {
+                        mixedGroups.push(it.sourceName);
+                        console.warn(`[obs] Mixed camera+capture group "${it.sourceName}" in scene "${sceneName}" — nested source transforms apply globally across scenes sharing that group.`);
+                    }
+                    for (const git of groupItems) classify(git, it.sourceName, true, it);
                 }
             } catch {
                 // Ignore inaccessible groups
@@ -481,6 +503,7 @@ const placeCamerasInScene = async (
             }
             continue;
         }
+        await ensureParentGroupEnabled(item);
         await obs.call('SetSceneItemEnabled', {
             sceneName: targetScene,
             sceneItemId: item.sceneItemId,
@@ -515,6 +538,7 @@ const placeCamerasInScene = async (
         const key = sourceKey(targetScene, item.sceneItemId, item.sourceName);
         const hole = captureAssignments.get(item);
         if (hole) {
+            await ensureParentGroupEnabled(item);
             await applyBoundsTransform(obs, targetScene, item.sceneItemId, hole.box, baseWidth, baseHeight, {
                 fill: false,
                 sourceName: item.sourceName,
@@ -553,11 +577,12 @@ const placeCamerasInScene = async (
         }
     }
 
-    return { matched, matchedCaptures, totalItems: sceneItems.length };
+    return { matched, matchedCaptures, totalItems: sceneItems.length, warnings: mixedGroups };
 };
 
 export const OBSProvider = ({ children }) => {
-    const [obs] = useState(() => new OBSWebSocket());
+    const obsRef = useRef(null);
+    const [obsClient, setObsClient] = useState(null);
     const [isConnected, setIsConnected] = useState(false);
     const [isRecording, setIsRecording] = useState(false);
     const [obsConfig, setObsConfig] = useState(loadObsConfig);
@@ -569,7 +594,8 @@ export const OBSProvider = ({ children }) => {
     // Mirror isConnected into a ref so placeCameras stays referentially stable
     // (callers keep it in useCallback deps) while still seeing live state.
     const isConnectedRef = useRef(false);
-    const lastPlaceRef = useRef({ boxes: null, visibility: null, elements: undefined });
+    const lastPlaceRef = useRef({ boxes: null, visibility: null, elements: undefined, theme: undefined });
+    const placeChainRef = useRef(Promise.resolve());
     const captureScaledRef = useRef(readJsonMap(CAPTURE_SCALED_KEY));
     const baselinesRef = useRef(readJsonMap(BASELINE_STORAGE_KEY));
     const activeFittedRef = useRef(new Map());
@@ -608,63 +634,59 @@ export const OBSProvider = ({ children }) => {
     // with fill-crop bounds (so circles/odd aspect frames are filled, overflow
     // cropped), and enable/disable it to match the scene. No-op when OBS isn't
     // connected, so it's always safe to call.
-    const placeCameras = useCallback(async (boxes, visibility, elements, options = {}) => {
-        if (boxes !== undefined || visibility !== undefined || elements !== undefined) {
+    const placeCameras = useCallback((boxes, visibility, elements, options = {}) => {
+        const optTheme = options?.theme;
+        if (boxes !== undefined || visibility !== undefined || elements !== undefined || optTheme !== undefined) {
             lastPlaceRef.current = {
                 boxes: boxes ?? lastPlaceRef.current.boxes,
                 visibility: visibility ?? lastPlaceRef.current.visibility,
                 elements: elements !== undefined ? elements : lastPlaceRef.current.elements,
+                theme: optTheme !== undefined ? optTheme : lastPlaceRef.current.theme,
             };
         }
         const targetBoxes = boxes ?? lastPlaceRef.current.boxes;
         const targetVisibility = visibility ?? lastPlaceRef.current.visibility;
         const targetElements = elements !== undefined ? elements : lastPlaceRef.current.elements;
-        if (!isConnectedRef.current || !targetBoxes) return;
+        const targetTheme = optTheme !== undefined ? optTheme : lastPlaceRef.current.theme;
+        if (!isConnectedRef.current || !targetBoxes) return Promise.resolve();
 
         const { skipHide = false, syncPreview = false } = options ?? {};
-        const captureHoles = findCaptureHoles(targetElements);
+        const captureHoles = findCaptureHoles(targetElements, targetTheme);
 
-        try {
-            const { baseWidth, baseHeight } = await obs.call('GetVideoSettings');
-            const { currentProgramSceneName: sceneName } = await obs.call('GetCurrentProgramScene');
+        const run = async () => {
+            const sessionObs = obsRef.current;
+            if (!sessionObs || !isConnectedRef.current || !targetBoxes) return;
 
-            let studioModeEnabled = false;
-            let previewSceneName = null;
             try {
-                const studio = await obs.call('GetStudioModeEnabled');
-                studioModeEnabled = !!studio?.studioModeEnabled;
-                if (studioModeEnabled) {
-                    const prev = await obs.call('GetCurrentPreviewScene');
-                    previewSceneName = prev?.currentPreviewSceneName ?? null;
+                const { baseWidth, baseHeight } = await sessionObs.call('GetVideoSettings');
+                if (obsRef.current !== sessionObs) return;
+                const { currentProgramSceneName: sceneName } = await sessionObs.call('GetCurrentProgramScene');
+                if (obsRef.current !== sessionObs) return;
+
+                let studioModeEnabled = false;
+                let previewSceneName = null;
+                try {
+                    const studio = await sessionObs.call('GetStudioModeEnabled');
+                    studioModeEnabled = !!studio?.studioModeEnabled;
+                    if (studioModeEnabled) {
+                        const prev = await sessionObs.call('GetCurrentPreviewScene');
+                        previewSceneName = prev?.currentPreviewSceneName ?? null;
+                    }
+                } catch {
+                    // Ignore if Studio Mode query is unsupported
                 }
-            } catch {
-                // Ignore if Studio Mode query is unsupported
-            }
 
-            const ctxOpts = {
-                skipHide,
-                baselinesMap: baselinesRef.current,
-                captureScaledMap: captureScaledRef.current,
-                activeFittedMap: activeFittedRef.current,
-                saveState: persistTransformState,
-            };
+                const ctxOpts = {
+                    skipHide,
+                    baselinesMap: baselinesRef.current,
+                    captureScaledMap: captureScaledRef.current,
+                    activeFittedMap: activeFittedRef.current,
+                    saveState: persistTransformState,
+                };
 
-            const primary = await placeCamerasInScene(
-                obs,
-                sceneName,
-                targetBoxes,
-                targetVisibility,
-                captureHoles,
-                baseWidth,
-                baseHeight,
-                ctxOpts,
-            );
-            // Studio Mode safety: never mutate an unrelated staged Preview scene
-            // automatically; only sync it on explicit Sync OBS requests.
-            if (syncPreview && previewSceneName && previewSceneName !== sceneName) {
-                await placeCamerasInScene(
-                    obs,
-                    previewSceneName,
+                const primary = await placeCamerasInScene(
+                    sessionObs,
+                    sceneName,
                     targetBoxes,
                     targetVisibility,
                     captureHoles,
@@ -672,37 +694,59 @@ export const OBSProvider = ({ children }) => {
                     baseHeight,
                     ctxOpts,
                 );
-            }
+                // Studio Mode safety: never mutate an unrelated staged Preview scene
+                // automatically; only sync it on explicit Sync OBS requests.
+                if (syncPreview && previewSceneName && previewSceneName !== sceneName && obsRef.current === sessionObs) {
+                    await placeCamerasInScene(
+                        sessionObs,
+                        previewSceneName,
+                        targetBoxes,
+                        targetVisibility,
+                        captureHoles,
+                        baseWidth,
+                        baseHeight,
+                        ctxOpts,
+                    );
+                }
 
-            if (mountedRef.current) {
-                setCamStatus({
-                    sceneName,
-                    previewSceneName,
-                    studioModeEnabled,
-                    matched: primary.matched,
-                    matchedCaptures: primary.matchedCaptures,
-                    hasCaptureHole: captureHoles.length > 0,
-                    totalItems: primary.totalItems,
-                    error: null,
-                });
+                if (mountedRef.current && obsRef.current === sessionObs) {
+                    setCamStatus({
+                        sceneName,
+                        previewSceneName,
+                        studioModeEnabled,
+                        matched: primary.matched,
+                        matchedCaptures: primary.matchedCaptures,
+                        hasCaptureHole: captureHoles.length > 0,
+                        totalItems: primary.totalItems,
+                        warnings: primary.warnings,
+                        error: null,
+                    });
+                }
+            } catch (e) {
+                const errMsg = e?.message ?? String(e);
+                console.warn('[obs] camera auto-place failed:', errMsg);
+                if (mountedRef.current && obsRef.current === sessionObs) {
+                    setCamStatus((prev) => ({
+                        sceneName: prev?.sceneName ?? '',
+                        matched: prev?.matched ?? [],
+                        totalItems: prev?.totalItems ?? 0,
+                        error: errMsg,
+                    }));
+                }
             }
-        } catch (e) {
-            const errMsg = e?.message ?? String(e);
-            console.warn('[obs] camera auto-place failed:', errMsg);
-            if (mountedRef.current) {
-                setCamStatus((prev) => ({
-                    sceneName: prev?.sceneName ?? '',
-                    matched: prev?.matched ?? [],
-                    totalItems: prev?.totalItems ?? 0,
-                    error: errMsg,
-                }));
-            }
-        }
-    }, [obs, persistTransformState]);
+        };
+
+        const queued = placeChainRef.current.then(run, run);
+        placeChainRef.current = queued;
+        return queued;
+    }, [persistTransformState]);
 
     useEffect(() => {
         mountedRef.current = true;
         let cancelled = false;
+        const sessionObs = new OBSWebSocket();
+        obsRef.current = sessionObs;
+        setObsClient(sessionObs);
         const activeFittedMap = activeFittedRef.current;
         const baselinesMap = baselinesRef.current;
         const captureScaledMap = captureScaledRef.current;
@@ -711,86 +755,110 @@ export const OBSProvider = ({ children }) => {
         // each failure would schedule TWO retries, doubling every interval into a
         // storm of dead WebSockets (ERR_INSUFFICIENT_RESOURCES + memory growth).
         let connecting = false;
+        let retryDelay = INITIAL_RETRY_INTERVAL;
+        let retryBlocked = false;
 
         const customUrl = normalizeWsUrl(obsConfig.url);
         const candidates = customUrl ? [customUrl] : DEFAULT_URLS;
 
         // Only ever one pending retry: clearing first means duplicate callers
-        // (catch + ConnectionClosed) collapse to a single scheduled attempt.
+        // collapse to a single scheduled attempt with capped exponential backoff.
         const scheduleRetry = () => {
-            if (!mountedRef.current || cancelled) return;
+            if (!mountedRef.current || cancelled || retryBlocked || obsRef.current !== sessionObs) return;
             clearTimeout(retryRef.current);
-            retryRef.current = setTimeout(connect, RETRY_INTERVAL);
+            const waitMs = retryDelay;
+            retryDelay = Math.min(MAX_RETRY_INTERVAL, retryDelay * 2);
+            retryRef.current = setTimeout(connect, waitMs);
         };
 
         const connect = async () => {
-            if (!mountedRef.current || cancelled || connecting) return;
+            if (!mountedRef.current || cancelled || connecting || obsRef.current !== sessionObs) return;
             connecting = true;
+            retryBlocked = false;
             let lastErr = null;
             let lastUrl = candidates[0];
 
             try {
                 for (const url of candidates) {
-                    if (!mountedRef.current || cancelled) return;
+                    if (!mountedRef.current || cancelled || obsRef.current !== sessionObs) return;
                     lastUrl = url;
                     try {
-                        await obs.connect(url, obsConfig.password || '');
-                        if (!mountedRef.current || cancelled) return;
+                        await sessionObs.connect(url, obsConfig.password || '');
+                        if (!mountedRef.current || cancelled || obsRef.current !== sessionObs) {
+                            await sessionObs.disconnect().catch(() => {});
+                            return;
+                        }
                         isConnectedRef.current = true;
+                        retryDelay = INITIAL_RETRY_INTERVAL;
                         setIsConnected(true);
                         setConnectionError(null);
 
-                        const status = await obs.call('GetRecordStatus');
-                        if (mountedRef.current && !cancelled) setIsRecording(status.outputActive);
-                        if (lastPlaceRef.current.boxes) {
+                        const status = await sessionObs.call('GetRecordStatus');
+                        if (mountedRef.current && !cancelled && obsRef.current === sessionObs) {
+                            setIsRecording(status.outputActive);
+                        }
+                        if (lastPlaceRef.current.boxes && obsRef.current === sessionObs) {
                             placeCameras(lastPlaceRef.current.boxes, lastPlaceRef.current.visibility);
                         }
                         return;
                     } catch (err) {
                         lastErr = err;
-                        if (err?.code === 4009) break;
+                        await sessionObs.disconnect().catch(() => {});
+                        if (obsRef.current === sessionObs) {
+                            isConnectedRef.current = false;
+                        }
+                        if (err?.code === 4009 || err?.name === 'SecurityError') break;
                     }
                 }
-                if (!mountedRef.current || cancelled) return;
+                if (!mountedRef.current || cancelled || obsRef.current !== sessionObs) return;
                 isConnectedRef.current = false;
                 setIsConnected(false);
                 setCamStatus(null);
-                setConnectionError(classifyObsError(lastErr, lastUrl));
-                scheduleRetry();
+                const errInfo = classifyObsError(lastErr, lastUrl);
+                setConnectionError(errInfo);
+                // Don't spin background retries on wrong password or blocked ws:// mixed content;
+                // Wait for user action (updateObsConfig / reconnect) instead.
+                if (errInfo.kind === 'auth' || errInfo.kind === 'mixed-content') {
+                    retryBlocked = true;
+                } else {
+                    scheduleRetry();
+                }
             } finally {
                 connecting = false;
             }
         };
 
         const onRecordStateChanged = (data) => {
+            if (obsRef.current !== sessionObs || cancelled) return;
             setIsRecording(data.outputActive);
         };
 
         const onSceneChanged = () => {
+            if (obsRef.current !== sessionObs || cancelled) return;
             if (isConnectedRef.current && lastPlaceRef.current.boxes) {
                 placeCameras(lastPlaceRef.current.boxes, lastPlaceRef.current.visibility);
             }
         };
 
         const onPreviewSceneChanged = (data) => {
-            if (!mountedRef.current || cancelled) return;
+            if (!mountedRef.current || cancelled || obsRef.current !== sessionObs) return;
             setCamStatus((prev) => (prev ? { ...prev, previewSceneName: data?.sceneName ?? prev.previewSceneName } : prev));
         };
 
         const onConnectionClosed = () => {
-            if (!mountedRef.current || cancelled) return;
+            if (!mountedRef.current || cancelled || obsRef.current !== sessionObs) return;
             isConnectedRef.current = false;
             setIsConnected(false);
             setIsRecording(false);
             setCamStatus(null);
-            scheduleRetry();
+            if (!connecting && !retryBlocked) scheduleRetry();
         };
 
-        obs.on('RecordStateChanged', onRecordStateChanged);
-        obs.on('CurrentProgramSceneChanged', onSceneChanged);
-        obs.on('CurrentPreviewSceneChanged', onPreviewSceneChanged);
-        obs.on('StudioModeStateChanged', onSceneChanged);
-        obs.on('ConnectionClosed', onConnectionClosed);
+        sessionObs.on('RecordStateChanged', onRecordStateChanged);
+        sessionObs.on('CurrentProgramSceneChanged', onSceneChanged);
+        sessionObs.on('CurrentPreviewSceneChanged', onPreviewSceneChanged);
+        sessionObs.on('StudioModeStateChanged', onSceneChanged);
+        sessionObs.on('ConnectionClosed', onConnectionClosed);
 
         connect();
 
@@ -798,19 +866,22 @@ export const OBSProvider = ({ children }) => {
             cancelled = true;
             mountedRef.current = false;
             clearTimeout(retryRef.current);
-            obs.off('RecordStateChanged', onRecordStateChanged);
-            obs.off('CurrentProgramSceneChanged', onSceneChanged);
-            obs.off('CurrentPreviewSceneChanged', onPreviewSceneChanged);
-            obs.off('StudioModeStateChanged', onSceneChanged);
-            obs.off('ConnectionClosed', onConnectionClosed);
-            const wasConnected = isConnectedRef.current;
-            isConnectedRef.current = false;
+            sessionObs.off('RecordStateChanged', onRecordStateChanged);
+            sessionObs.off('CurrentProgramSceneChanged', onSceneChanged);
+            sessionObs.off('CurrentPreviewSceneChanged', onPreviewSceneChanged);
+            sessionObs.off('StudioModeStateChanged', onSceneChanged);
+            sessionObs.off('ConnectionClosed', onConnectionClosed);
+            const wasConnected = isConnectedRef.current && obsRef.current === sessionObs;
+            if (obsRef.current === sessionObs) {
+                isConnectedRef.current = false;
+                obsRef.current = null;
+            }
             const entries = Array.from(activeFittedMap.values());
             activeFittedMap.clear();
             const cleanup = async () => {
                 if (wasConnected && entries.length > 0) {
                     const restores = entries.map((entry) =>
-                        restoreItemBaseline(obs, entry.sceneName, entry.sceneItemId, entry.sourceName, {
+                        restoreItemBaseline(sessionObs, entry.sceneName, entry.sceneItemId, entry.sourceName, {
                             key: entry.key,
                             isCapture: entry.isCapture,
                             baseWidth: entry.baseWidth,
@@ -825,18 +896,18 @@ export const OBSProvider = ({ children }) => {
                         new Promise((resolve) => setTimeout(resolve, 600)),
                     ]);
                 }
-                await obs.disconnect().catch(() => {
+                await sessionObs.disconnect().catch(() => {
                     // Ignore disconnect errors when socket was never open
                 });
             };
             cleanup();
         };
-    }, [obs, obsConfig.url, obsConfig.password, connectNonce, placeCameras, persistTransformState]);
+    }, [obsConfig.url, obsConfig.password, connectNonce, placeCameras, persistTransformState]);
 
     return (
         <OBSContext.Provider
             value={{
-                obs,
+                obs: obsClient,
                 isConnected,
                 isRecording,
                 connectionError,

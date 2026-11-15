@@ -187,7 +187,7 @@ const FrozenSceneLayer = ({ stage }) => {
                                 theme={theme}
                                 mood={mood}
                                 channel={channel}
-                                preview
+                                frozen
                                 holes={el.type === 'backdrop' ? holes : undefined}
                                 liveState={liveState}
                                 serverOffsetMs={serverOffsetMs}
@@ -196,7 +196,7 @@ const FrozenSceneLayer = ({ stage }) => {
                     </div>
                 );
             })}
-            {CAMERA_IDS.filter(id => boxVisibility[id] && boxes[id]).map(id => {
+            {CAMERA_IDS.filter(id => (boxVisibility[id] ?? true) && boxes[id]).map(id => {
                 const b = boxes[id];
                 return (
                     <div key={id} style={{ position: 'absolute', left: `${b.x}%`, top: `${b.y}%`, width: `${b.w}%`, height: `${b.h}%`, zIndex: getFrozenZ(id) }}>
@@ -204,12 +204,18 @@ const FrozenSceneLayer = ({ stage }) => {
                     </div>
                 );
             })}
-            {boxVisibility.aiCompanion && boxes.aiCompanion && (
+            {(boxVisibility.aiCompanion ?? true) && boxes.aiCompanion && (
                 <div style={{ position: 'absolute', left: `${boxes.aiCompanion.x}%`, top: `${boxes.aiCompanion.y}%`, width: `${boxes.aiCompanion.w}%`, height: `${boxes.aiCompanion.h}%`, zIndex: getFrozenZ('aiCompanion'), overflow: 'hidden' }}>
-                    <ScaledContent><div className="w-full h-full overflow-hidden"><AICompanion /></div></ScaledContent>
+                    <ScaledContent>
+                        <div className="w-full h-full bg-black/80 backdrop-blur-md rounded-xl border border-white/10 p-3 flex flex-col gap-2 shadow-lg overflow-hidden">
+                            <div className="flex items-center gap-2 border-b border-white/5 pb-2">
+                                <span className="text-xs font-bold text-white/80 uppercase tracking-widest">AI Companion</span>
+                            </div>
+                        </div>
+                    </ScaledContent>
                 </div>
             )}
-            {boxVisibility.currentTask && boxes.currentTask && (
+            {(boxVisibility.currentTask ?? true) && boxes.currentTask && (
                 <div style={{ position: 'absolute', left: `${boxes.currentTask.x}%`, top: `${boxes.currentTask.y}%`, width: `${boxes.currentTask.w}%`, height: `${boxes.currentTask.h}%`, zIndex: getFrozenZ('currentTask'), overflow: 'hidden' }}>
                     <ScaledContent>
                         <div className="w-full h-full bg-black/80 backdrop-blur-md border-t border-white/5 overflow-hidden">
@@ -226,7 +232,7 @@ const ElementBox = memo(
     ({
         element, zIndex, selected, editMode, canvasRef, extraStyle, theme, mood, channel, holes,
         liveState, serverOffsetMs, onLiveAction,
-        onSelect, onBoxChange, onUploadLogo, onElementUpdate,
+        onSelect, onBoxChange, onLayerUp, onLayerDown, onUploadLogo, onElementUpdate,
     }) => {
         const handleUploadLogo = useCallback(() => onUploadLogo(element.id), [element.id, onUploadLogo]);
         const handleUpdate = useCallback((changes) => onElementUpdate?.(element.id, changes), [element.id, onElementUpdate]);
@@ -239,6 +245,8 @@ const ElementBox = memo(
                 zIndex={zIndex}
                 selected={selected}
                 onSelect={onSelect}
+                onLayerUp={onLayerUp}
+                onLayerDown={onLayerDown}
                 onBoxChange={onBoxChange}
                 editMode={editMode}
                 canvasRef={canvasRef}
@@ -277,6 +285,8 @@ const ElementBox = memo(
         prev.serverOffsetMs === next.serverOffsetMs &&
         prev.onLiveAction === next.onLiveAction &&
         prev.onSelect === next.onSelect &&
+        prev.onLayerUp === next.onLayerUp &&
+        prev.onLayerDown === next.onLayerDown &&
         prev.onBoxChange === next.onBoxChange &&
         prev.onUploadLogo === next.onUploadLogo &&
         prev.onElementUpdate === next.onElementUpdate
@@ -463,25 +473,41 @@ const OverlayLayout = () => {
     const [activeTransition, setActiveTransition] = useState(DEFAULT_SCENE_TRANSITION);
     const [exitStage, setExitStage] = useState(null);
     const [camVeil, setCamVeil] = useState(NO_CAM_VEIL);
+    const [syncError, setSyncError] = useState(null);
     const currentMoodRef = useRef('chill');
     const transitionDoneTimerRef = useRef(null);
     const dipMidTimerRef = useRef(null);
     const veilTimerRef = useRef(null);
     const transitionMetaRef = useRef(null);
+    const unsettledVeilRef = useRef(NO_CAM_VEIL);
     const overlayMountedRef = useRef(true);
+    const forcePollRef = useRef(null);
+    const liveToastTimerRef = useRef(null);
 
     const postLayout = useCallback((body) => {
         writeEpochRef.current += 1;
         const url = layoutUrl();
         const payload = JSON.stringify({ ...body, _clientId: SESSION_ID });
-        writeQueueRef.current = writeQueueRef.current.then(async () => {
+        const queued = writeQueueRef.current.then(async () => {
             const res = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: payload,
             });
-            if (!res.ok) return;
             const data = await res.json().catch(() => null);
+            if (!res.ok) {
+                if (res.status === 413) {
+                    setSyncError('Layout too large to save (max 2 MB) — try a smaller image.');
+                } else if (res.status === 409) {
+                    if (data?._v) lastVerRef.current = data._v;
+                    setSyncError('Layout updated elsewhere — synced latest version.');
+                    forcePollRef.current?.();
+                } else {
+                    setSyncError(data?.error || `Failed to save layout (HTTP ${res.status})`);
+                }
+                return false;
+            }
+            setSyncError(null);
             if (data?._v) lastVerRef.current = data._v;
             if (typeof data?.serverNow === 'number') {
                 const offset = data.serverNow - Date.now();
@@ -494,8 +520,14 @@ const OverlayLayout = () => {
                 }
                 setLiveState(data.live);
             }
-        }).catch(console.error);
-        return writeQueueRef.current;
+            return true;
+        }).catch((err) => {
+            console.error(err);
+            setSyncError('Save failed — check your connection.');
+            return false;
+        });
+        writeQueueRef.current = queued;
+        return queued;
     }, []);
 
     const handleLiveAction = useCallback((bucket, id, payload) => {
@@ -560,16 +592,23 @@ const OverlayLayout = () => {
         clearExitStageTimers();
         setExitStage(null);
         if (!layoutHydratedRef.current) {
+            unsettledVeilRef.current = NO_CAM_VEIL;
             setCamVeil(NO_CAM_VEIL);
             return;
         }
-        if (meta.isDip && meta.settledOBS) {
-            setCamVeil(NO_CAM_VEIL);
+        if (meta.isDip && meta.dipPromise) {
+            Promise.resolve(meta.dipPromise)
+                .finally(() => {
+                    if (!overlayMountedRef.current || transitionMetaRef.current?.token !== token) return;
+                    unsettledVeilRef.current = NO_CAM_VEIL;
+                    setCamVeil(NO_CAM_VEIL);
+                });
             return;
         }
-        Promise.resolve(placeCameras(boxesRef.current, visRef.current, elementsRef.current))
+        Promise.resolve(placeCameras(boxesRef.current, visRef.current, elementsRef.current, { theme: themeRef.current }))
             .finally(() => {
                 if (!overlayMountedRef.current || transitionMetaRef.current?.token !== token) return;
+                unsettledVeilRef.current = NO_CAM_VEIL;
                 veilTimerRef.current = setTimeout(() => {
                     if (overlayMountedRef.current && transitionMetaRef.current?.token === token) {
                         setCamVeil(NO_CAM_VEIL);
@@ -583,10 +622,11 @@ const OverlayLayout = () => {
         return () => {
             overlayMountedRef.current = false;
             clearExitStageTimers();
+            clearTimeout(liveToastTimerRef.current);
         };
     }, [clearExitStageTimers]);
 
-    const startSceneTransition = useCallback((prevStage, rawTransition, nextBoxes, nextVis, nextEls) => {
+    const startSceneTransition = useCallback((prevStage, rawTransition, nextBoxes, nextVis, nextEls, nextTheme = themeRef.current) => {
         clearExitStageTimers();
         const resolved = resolveTransition(rawTransition);
         setActiveTransition(resolved);
@@ -594,43 +634,60 @@ const OverlayLayout = () => {
 
         if (resolved.type === 'none' || resolved.durationMs <= 0 || !prevStage) {
             transitionMetaRef.current = null;
+            unsettledVeilRef.current = NO_CAM_VEIL;
             setExitStage(null);
             setCamVeil(NO_CAM_VEIL);
-            placeCameras(nextBoxes, nextVis, nextEls);
+            placeCameras(nextBoxes, nextVis, nextEls, { theme: nextTheme });
             return;
         }
 
         const spec = SCENE_TRANSITIONS[resolved.type];
         const token = Symbol('sceneTransition');
-        transitionMetaRef.current = { token, isDip: !!spec?.dip, settledOBS: false, done: false };
+        transitionMetaRef.current = { token, isDip: !!spec?.dip, dipPromise: null, done: false };
         const exitKey = `exit_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-        setExitStage({ key: exitKey, ...prevStage, transition: resolved });
+        setExitStage({ key: exitKey, token, ...prevStage, transition: resolved });
+
+        const prevHoleEls = (prevStage.elements || []).filter(e => e.type === 'frame' && e.hole && !e.hidden && e.box);
+        const nextHoleEls = (nextEls || []).filter(e => e.type === 'frame' && e.hole && !e.hidden && e.box);
+        const prevPending = unsettledVeilRef.current;
 
         if (spec?.dip) {
+            unsettledVeilRef.current = {
+                faceCam: !!nextVis.faceCam,
+                handCam: !!nextVis.handCam,
+                roomCam: !!nextVis.roomCam,
+                holes: nextHoleEls.length > 0,
+            };
             setCamVeil(NO_CAM_VEIL);
             // Dip-to-black curtain stays 100% opaque across [0.34..0.66]; switch OBS inside that plateau.
             dipMidTimerRef.current = setTimeout(() => {
                 if (transitionMetaRef.current?.token !== token) return;
-                transitionMetaRef.current.settledOBS = true;
-                placeCameras(boxesRef.current, visRef.current, elementsRef.current);
-            }, Math.round(resolved.durationMs * 0.40));
+                transitionMetaRef.current.dipPromise = Promise.resolve(
+                    placeCameras(boxesRef.current, visRef.current, elementsRef.current, { theme: themeRef.current })
+                ).finally(() => {
+                    if (transitionMetaRef.current?.token === token) {
+                        unsettledVeilRef.current = NO_CAM_VEIL;
+                    }
+                });
+            }, Math.round(resolved.durationMs * 0.36));
         } else {
             // Defer OBS source resizing/enabling until the overlay layout finishes landing so
             // native OBS cameras/captures never pop in ahead of the transition animation.
             const movesCanvas = resolved.type !== 'fade';
-            const prevHoleEls = (prevStage.elements || []).filter(e => e.type === 'frame' && e.hole && !e.hidden && e.box);
-            const nextHoleEls = (nextEls || []).filter(e => e.type === 'frame' && e.hole && !e.hidden && e.box);
             const holesChanged = nextHoleEls.length > 0 && (
                 movesCanvas ||
+                !!prevPending.holes ||
                 prevHoleEls.length !== nextHoleEls.length ||
                 nextHoleEls.some((ne, idx) => !boxNearlySame(ne.box, prevHoleEls[idx]?.box))
             );
-            setCamVeil({
-                faceCam: !!nextVis.faceCam && (movesCanvas || !prevStage.boxVisibility?.faceCam || !boxNearlySame(prevStage.boxes?.faceCam, nextBoxes.faceCam)),
-                handCam: !!nextVis.handCam && (movesCanvas || !prevStage.boxVisibility?.handCam || !boxNearlySame(prevStage.boxes?.handCam, nextBoxes.handCam)),
-                roomCam: !!nextVis.roomCam && (movesCanvas || !prevStage.boxVisibility?.roomCam || !boxNearlySame(prevStage.boxes?.roomCam, nextBoxes.roomCam)),
+            const nextVeil = {
+                faceCam: !!nextVis.faceCam && (!!prevPending.faceCam || movesCanvas || !prevStage.boxVisibility?.faceCam || !boxNearlySame(prevStage.boxes?.faceCam, nextBoxes.faceCam)),
+                handCam: !!nextVis.handCam && (!!prevPending.handCam || movesCanvas || !prevStage.boxVisibility?.handCam || !boxNearlySame(prevStage.boxes?.handCam, nextBoxes.handCam)),
+                roomCam: !!nextVis.roomCam && (!!prevPending.roomCam || movesCanvas || !prevStage.boxVisibility?.roomCam || !boxNearlySame(prevStage.boxes?.roomCam, nextBoxes.roomCam)),
                 holes: holesChanged,
-            });
+            };
+            unsettledVeilRef.current = nextVeil;
+            setCamVeil(nextVeil);
         }
 
         transitionDoneTimerRef.current = setTimeout(() => {
@@ -651,13 +708,15 @@ const OverlayLayout = () => {
             setSelectedBox(null);
             setSelectedElementId(null);
             setShowBgPanel(false);
+            setShowThemePanel(false);
+            setNamingScene(false);
         }
     }, [isRecording]);
 
     // ── OBS connect — place native cameras once initial layout is hydrated ──
     useEffect(() => {
         if (isConnected && layoutHydratedRef.current) {
-            placeCameras(boxesRef.current, visRef.current, elementsRef.current);
+            placeCameras(boxesRef.current, visRef.current, elementsRef.current, { theme: themeRef.current });
         }
     }, [isConnected, placeCameras]);
 
@@ -699,13 +758,20 @@ const OverlayLayout = () => {
     // ── Theme ────────────────────────────────────────────────────────────────
     // applyTheme replaces the whole theme (picking a starter); updateTheme
     // patches individual tokens (editing accent / radius / font in the panel).
-    const applyTheme = useCallback((theme) => updateLayout({ theme: getTheme(theme) }), [updateLayout]);
-    const updateTheme = useCallback((changes) =>
-        setLayoutSettings(s => {
-            const theme = { ...(s.theme ?? DEFAULT_THEME), ...changes };
-            postLayout({ theme });
-            return { ...s, theme };
-        }), [postLayout]);
+    const applyTheme = useCallback((nextTheme) => {
+        const resolved = getTheme(nextTheme);
+        themeRef.current = resolved;
+        setLayoutSettings(s => ({ ...s, theme: resolved }));
+        placeCameras(boxesRef.current, visRef.current, elementsRef.current, { theme: resolved });
+        postLayout({ theme: resolved });
+    }, [placeCameras, postLayout]);
+    const updateTheme = useCallback((changes) => {
+        const theme = { ...(layoutSettingsRef.current.theme ?? DEFAULT_THEME), ...changes };
+        themeRef.current = theme;
+        setLayoutSettings(s => ({ ...s, theme }));
+        placeCameras(boxesRef.current, visRef.current, elementsRef.current, { theme });
+        postLayout({ theme });
+    }, [placeCameras, postLayout]);
 
     // ── Stable box updater — only updates boxes state, not layoutSettings ───
     const updateBox = useCallback((id, newBox) => {
@@ -713,14 +779,14 @@ const OverlayLayout = () => {
         boxesRef.current = updated;
         setBoxes(updated);
         // Dragging a cam frame also re-pins the native OBS camera source to it.
-        if (CAMERA_IDS.includes(id)) placeCameras(updated, visRef.current, elementsRef.current);
+        if (CAMERA_IDS.includes(id)) placeCameras(updated, visRef.current, elementsRef.current, { theme: themeRef.current });
         postLayout({ boxes: updated });
     }, [placeCameras, postLayout]);
 
     const resetLayout = useCallback(() => {
         boxesRef.current = DEFAULT_BOXES;
         setBoxes(DEFAULT_BOXES);
-        placeCameras(DEFAULT_BOXES, visRef.current, elementsRef.current);
+        placeCameras(DEFAULT_BOXES, visRef.current, elementsRef.current, { theme: themeRef.current });
         postLayout({ boxes: DEFAULT_BOXES });
     }, [placeCameras, postLayout]);
 
@@ -739,22 +805,25 @@ const OverlayLayout = () => {
         // Saved layouts (not scenes) additionally carry camera frames.
         const extra = {};
         if (snapshot.camStyles !== undefined) extra.camStyles = snapshot.camStyles;
+        const { livePatch: _lp, ...stateExtraPatch } = extraPatch || {};
+        void _lp;
 
         boxesRef.current = nBoxes;
         visRef.current = nVis;
         elementsRef.current = nEls;
         zOrderRef.current = nZ;
+        if (nTheme) themeRef.current = nTheme;
         setBoxes(nBoxes);
         setZOrder(nZ);
         setSelectedBox(null);
         setSelectedElementId(null);
 
         const nextTransition = transition ?? snapshot.transition ?? layoutSettingsRef.current.sceneTransition ?? DEFAULT_SCENE_TRANSITION;
-        startSceneTransition(prevStage, nextTransition, nBoxes, nVis, nEls);
+        startSceneTransition(prevStage, nextTransition, nBoxes, nVis, nEls, nTheme ?? themeRef.current);
 
         setLayoutSettings(s => ({
             ...s,
-            ...extraPatch,
+            ...stateExtraPatch,
             elements: nEls,
             background: nBg,
             boxVisibility: nVis,
@@ -795,25 +864,36 @@ const OverlayLayout = () => {
         const fresh = isDefaultRoom();
         if (fresh) {
             const roomId = newRoomId();
-            const currentSettings = layoutSettingsRef.current;
+            const { livePatch: _lp, ...currentSettings } = layoutSettingsRef.current;
+            void _lp;
             const localLib = loadLocalLibrary();
+            const prevUrl = window.location.href;
+            const prevVer = lastVerRef.current;
+            const prevSeq = lastLiveSceneSeqRef.current;
             setRoomInUrl(roomId);
             lastVerRef.current = null;
-            try {
-                await postLayout({
-                    ...currentSettings,
-                    layouts: localLib.length > 0 ? localLib : (currentSettings.layouts ?? []),
-                    boxes: boxesRef.current,
-                    zOrder: zOrderRef.current,
-                });
-            } catch (e) { console.error(e); }
+            lastLiveSceneSeqRef.current = 0;
+            const ok = await postLayout({
+                ...currentSettings,
+                layouts: localLib.length > 0 ? localLib : (currentSettings.layouts ?? []),
+                boxes: boxesRef.current,
+                zOrder: zOrderRef.current,
+            });
+            if (!ok) {
+                window.history.replaceState(null, '', prevUrl);
+                lastVerRef.current = prevVer;
+                lastLiveSceneSeqRef.current = prevSeq;
+                return;
+            }
         }
         const room = getRoom();
         const links = shareLinks(room);
         let copied = false;
         try { await navigator.clipboard.writeText(links.obs); copied = true; } catch { /* clipboard blocked */ }
+        if (!overlayMountedRef.current) return;
+        clearTimeout(liveToastTimerRef.current);
         setLiveToast({ room, ...links, fresh, copied });
-        setTimeout(() => setLiveToast(null), 7000);
+        liveToastTimerRef.current = setTimeout(() => setLiveToast(null), 7000);
 
         // The one event that separates "just looking" from "actually using it":
         // minting a fresh room is the real activation moment; re-copying an
@@ -1031,15 +1111,16 @@ const OverlayLayout = () => {
     const addElement = useCallback((type, box) => {
         const el = defaultElement(type, themeRef.current);
         if (box) el.box = box;
-        setLayoutSettings(s => {
-            const newElements = [...(s.elements ?? []), el];
-            elementsRef.current = newElements;
-            postLayout({ elements: newElements });
-            return { ...s, elements: newElements };
-        });
+        const newElements = [...(elementsRef.current ?? []), el];
+        elementsRef.current = newElements;
+        setLayoutSettings(s => ({ ...s, elements: newElements }));
+        if (el.hole && !el.hidden) {
+            placeCameras(boxesRef.current, visRef.current, newElements, { theme: themeRef.current });
+        }
+        postLayout({ elements: newElements });
         setSelectedElementId(el.id);
         setSelectedBox(null);
-    }, [postLayout]);
+    }, [placeCameras, postLayout]);
 
     // Canvas placement gesture: click = default-size at point, drag = drawn box.
     // Pointer events so tap/drag-to-place works with touch on phones.
@@ -1112,12 +1193,12 @@ const OverlayLayout = () => {
         const nextElements = prev.map(el => el.id === id ? { ...el, ...changes } : el);
         elementsRef.current = nextElements;
         if ((touched?.hole || changes.hole !== undefined) &&
-            (changes.box !== undefined || changes.hole !== undefined || changes.hidden !== undefined)) {
-            placeCameras(boxesRef.current, visRef.current, nextElements);
+            (changes.box !== undefined || changes.hole !== undefined || changes.hidden !== undefined || changes.frameStyle !== undefined || changes.borderWidth !== undefined || changes.borderRadius !== undefined)) {
+            placeCameras(boxesRef.current, visRef.current, nextElements, { theme: themeRef.current });
         }
         setLayoutSettings(s => ({
             ...s,
-            elements: (s.elements ?? []).map(el => el.id === id ? { ...el, ...changes } : el),
+            elements: nextElements,
         }));
         postLayout({ elementPatch: { id, changes } });
     }, [placeCameras, postLayout]);
@@ -1127,31 +1208,47 @@ const OverlayLayout = () => {
         const touched = prev.find(el => el.id === id);
         const nextElements = prev.filter(el => el.id !== id);
         elementsRef.current = nextElements;
-        if (touched?.hole) placeCameras(boxesRef.current, visRef.current, nextElements);
-        setLayoutSettings(s => {
-            const newElements = (s.elements ?? []).filter(el => el.id !== id);
-            postLayout({ elements: newElements });
-            return { ...s, elements: newElements };
+        if (touched?.hole) placeCameras(boxesRef.current, visRef.current, nextElements, { theme: themeRef.current });
+        setLayoutSettings(s => ({ ...s, elements: nextElements }));
+        setLiveState(prevLive => {
+            if (!prevLive) return prevLive;
+            const timers = prevLive.timers ? { ...prevLive.timers } : undefined;
+            const triggers = prevLive.triggers ? { ...prevLive.triggers } : undefined;
+            const counters = prevLive.counters ? { ...prevLive.counters } : undefined;
+            if (timers) delete timers[id];
+            if (triggers) delete triggers[id];
+            if (counters) delete counters[id];
+            return {
+                ...prevLive,
+                ...(timers ? { timers } : {}),
+                ...(triggers ? { triggers } : {}),
+                ...(counters ? { counters } : {}),
+            };
         });
         setSelectedElementId(null);
+        postLayout({
+            elements: nextElements,
+            livePatch: { timers: { [id]: null }, triggers: { [id]: null }, counters: { [id]: null } },
+        });
     }, [placeCameras, postLayout]);
 
     // Copy an element just above the original, nudged so both stay visible.
     const duplicateElement = useCallback((id) => {
+        const els = elementsRef.current ?? [];
+        const i = els.findIndex(el => el.id === id);
+        if (i === -1) return;
         const copyId = `el_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-        setLayoutSettings(s => {
-            const els = s.elements ?? [];
-            const i = els.findIndex(el => el.id === id);
-            if (i === -1) return s;
-            const src = els[i];
-            const box = src.box ? { ...src.box, x: Math.min(100 - src.box.w, src.box.x + 2), y: Math.min(100 - src.box.h, src.box.y + 2) } : src.box;
-            const newElements = [...els.slice(0, i), { ...src, id: copyId, box }, ...els.slice(i)];
-            elementsRef.current = newElements;
-            postLayout({ elements: newElements });
-            return { ...s, elements: newElements };
-        });
+        const src = els[i];
+        const box = src.box ? { ...src.box, x: Math.min(100 - src.box.w, src.box.x + 2), y: Math.min(100 - src.box.h, src.box.y + 2) } : src.box;
+        const newElements = [...els.slice(0, i), { ...src, id: copyId, box }, ...els.slice(i)];
+        elementsRef.current = newElements;
+        setLayoutSettings(s => ({ ...s, elements: newElements }));
+        if (src.hole && !src.hidden) {
+            placeCameras(boxesRef.current, visRef.current, newElements, { theme: themeRef.current });
+        }
+        postLayout({ elements: newElements });
         setSelectedElementId(copyId);
-    }, [postLayout]);
+    }, [placeCameras, postLayout]);
 
     const toggleElementVisibility = useCallback((id) => {
         const prev = elementsRef.current ?? [];
@@ -1160,11 +1257,8 @@ const OverlayLayout = () => {
         const nextHidden = !touched.hidden;
         const nextElements = prev.map(e => e.id === id ? { ...e, hidden: nextHidden } : e);
         elementsRef.current = nextElements;
-        if (touched.hole) placeCameras(boxesRef.current, visRef.current, nextElements);
-        setLayoutSettings(s => ({
-            ...s,
-            elements: (s.elements ?? []).map(e => e.id === id ? { ...e, hidden: nextHidden } : e),
-        }));
+        if (touched.hole) placeCameras(boxesRef.current, visRef.current, nextElements, { theme: themeRef.current });
+        setLayoutSettings(s => ({ ...s, elements: nextElements }));
         postLayout({ elementPatch: { id, changes: { hidden: nextHidden } } });
     }, [placeCameras, postLayout]);
 
@@ -1183,38 +1277,34 @@ const OverlayLayout = () => {
     const selectBox = useCallback((id) => {
         setSelectedBox(id);
         setSelectedElementId(null);
-        setZOrder(prev => {
-            if (prev[prev.length - 1] === id) return prev;
-            const next = [...prev.filter(x => x !== id), id];
-            zOrderRef.current = next;
-            postLayout({ zOrder: next });
-            return next;
-        });
+        const cur = zOrderRef.current;
+        if (cur[cur.length - 1] === id) return;
+        const next = [...cur.filter(x => x !== id), id];
+        zOrderRef.current = next;
+        setZOrder(next);
+        postLayout({ zOrder: next });
     }, [postLayout]);
 
-    const layerUp = useCallback((id) => {
-        setZOrder(prev => {
-            const i = prev.indexOf(id);
-            if (i >= prev.length - 1) return prev;
-            const next = [...prev];
-            [next[i], next[i + 1]] = [next[i + 1], next[i]];
-            zOrderRef.current = next;
-            postLayout({ zOrder: next });
-            return next;
-        });
+    const reorderBuiltinLayer = useCallback((id, dir) => {
+        const cur = zOrderRef.current;
+        const i = cur.indexOf(id);
+        if (i === -1) return;
+        const vis = visRef.current ?? DEFAULT_VISIBILITY;
+        let j = i + dir;
+        while (j >= 0 && j < cur.length && !(vis[cur[j]] ?? true)) {
+            j += dir;
+        }
+        if (j < 0 || j >= cur.length) return;
+        const next = [...cur];
+        next.splice(i, 1);
+        next.splice(j, 0, id);
+        zOrderRef.current = next;
+        setZOrder(next);
+        postLayout({ zOrder: next });
     }, [postLayout]);
 
-    const layerDown = useCallback((id) => {
-        setZOrder(prev => {
-            const i = prev.indexOf(id);
-            if (i <= 0) return prev;
-            const next = [...prev];
-            [next[i], next[i - 1]] = [next[i - 1], next[i]];
-            zOrderRef.current = next;
-            postLayout({ zOrder: next });
-            return next;
-        });
-    }, [postLayout]);
+    const layerUp = useCallback((id) => reorderBuiltinLayer(id, 1), [reorderBuiltinLayer]);
+    const layerDown = useCallback((id) => reorderBuiltinLayer(id, -1), [reorderBuiltinLayer]);
 
     const getZIndex = useCallback((id) => {
         const idx = zOrder.indexOf(id);
@@ -1234,16 +1324,13 @@ const OverlayLayout = () => {
         // native OBS camera source.
         const nextVis = { ...visRef.current, [id]: value };
         visRef.current = nextVis;
-        if (CAMERA_IDS.includes(id)) placeCameras(boxesRef.current, nextVis, elementsRef.current);
-        setLayoutSettings(s => {
-            const bv = s.boxVisibility ?? DEFAULT_VISIBILITY;
-            const updates = { boxVisibility: { ...bv, [id]: value } };
-            if (id === 'faceCam') updates.showFaceCam = value;
-            if (id === 'handCam') updates.showHandCam = value;
-            if (id === 'roomCam') updates.showRoomCam = value;
-            postLayout(updates);
-            return { ...s, ...updates };
-        });
+        if (CAMERA_IDS.includes(id)) placeCameras(boxesRef.current, nextVis, elementsRef.current, { theme: themeRef.current });
+        const updates = { boxVisibility: nextVis };
+        if (id === 'faceCam') updates.showFaceCam = value;
+        if (id === 'handCam') updates.showHandCam = value;
+        if (id === 'roomCam') updates.showRoomCam = value;
+        setLayoutSettings(s => ({ ...s, ...updates }));
+        postLayout(updates);
     }, [placeCameras, postLayout]);
 
     const addBuiltin = useCallback((id) => {
@@ -1259,29 +1346,25 @@ const OverlayLayout = () => {
     // Reorder a custom element within the stack. Earlier in the array renders on
     // top (see zIndex below), so "up" = toward the front / top of the list.
     const moveElement = useCallback((id, dir) => {
-        setLayoutSettings(s => {
-            const els = s.elements ?? [];
-            const i = els.findIndex(e => e.id === id);
-            const j = i + dir;
-            if (i < 0 || j < 0 || j >= els.length) return s;
-            const next = [...els];
-            [next[i], next[j]] = [next[j], next[i]];
-            elementsRef.current = next;
-            postLayout({ elements: next });
-            return { ...s, elements: next };
-        });
+        const els = elementsRef.current ?? [];
+        const i = els.findIndex(e => e.id === id);
+        const j = i + dir;
+        if (i < 0 || j < 0 || j >= els.length) return;
+        const next = [...els];
+        [next[i], next[j]] = [next[j], next[i]];
+        elementsRef.current = next;
+        setLayoutSettings(s => ({ ...s, elements: next }));
+        postLayout({ elements: next });
     }, [postLayout]);
     const elementUp = useCallback((id) => moveElement(id, -1), [moveElement]);
     const elementDown = useCallback((id) => moveElement(id, +1), [moveElement]);
 
     // Per-camera frame styling (frame preset, accent, corner radius).
     const updateCamStyle = useCallback((slot, changes) => {
-        setLayoutSettings(s => {
-            const cur = s.camStyles ?? {};
-            const next = { ...cur, [slot]: { ...DEFAULT_CAM_STYLE, ...(cur[slot] ?? {}), ...changes } };
-            postLayout({ camStyles: next });
-            return { ...s, camStyles: next };
-        });
+        const cur = layoutSettingsRef.current.camStyles ?? {};
+        const next = { ...cur, [slot]: { ...DEFAULT_CAM_STYLE, ...(cur[slot] ?? {}), ...changes } };
+        setLayoutSettings(s => ({ ...s, camStyles: next }));
+        postLayout({ camStyles: next });
     }, [postLayout]);
 
     // ── Hosted layout sync (adaptive polling + live-only delta path) ─────────
@@ -1302,6 +1385,16 @@ const OverlayLayout = () => {
         let misses = 0;        // consecutive unchanged polls
         let libLoaded = false; // saved-layouts library fetched once already
         let activeAbort = null;
+        let getErrorActive = false;
+
+        const hydrateDefaultRoomLocally = () => {
+            if (libLoaded || !isDefaultRoom()) return;
+            libLoaded = true;
+            layoutHydratedRef.current = true;
+            const localLib = loadLocalLibrary();
+            setLayoutSettings(s => ({ ...s, layouts: localLib }));
+            if (isMounted) setLibReady(true);
+        };
 
         const syncClockAndLive = (payload, isFirstLoad) => {
             if (typeof payload.serverNow === 'number') {
@@ -1317,6 +1410,22 @@ const OverlayLayout = () => {
                 setLiveState(payload.live);
             } else if (isFirstLoad && lastLiveSceneSeqRef.current === null) {
                 lastLiveSceneSeqRef.current = 0;
+            }
+        };
+
+        const maybeAnimateRemoteSeq = (payload, isFirstLoad) => {
+            const remoteSeq = payload.live?.scene?.seq;
+            const hasNewSeq = !isFirstLoad &&
+                typeof remoteSeq === 'number' &&
+                lastLiveSceneSeqRef.current !== null &&
+                remoteSeq > lastLiveSceneSeqRef.current;
+            if (typeof remoteSeq === 'number') {
+                lastLiveSceneSeqRef.current = Math.max(lastLiveSceneSeqRef.current ?? 0, remoteSeq);
+            }
+            if (hasNewSeq) {
+                const prevStage = captureCurrentStageSnapshot();
+                const trans = payload.live?.scene?.transition ?? payload.sceneTransition ?? layoutSettingsRef.current.sceneTransition ?? DEFAULT_SCENE_TRANSITION;
+                startSceneTransition(prevStage, trans, boxesRef.current, visRef.current, elementsRef.current, themeRef.current);
             }
         };
 
@@ -1354,6 +1463,8 @@ const OverlayLayout = () => {
 
             const { boxes: _b, live: _live, serverNow: _sn, _liveOnly: _lo, zOrder: _z, ...rest } = data;
             void _b; void _live; void _sn; void _lo; void _z;
+            const nextTheme = data.theme ? getTheme(data.theme) : themeRef.current;
+            if (data.theme) themeRef.current = nextTheme;
             setLayoutSettings(s => ({
                 ...s,
                 ...rest,
@@ -1364,9 +1475,9 @@ const OverlayLayout = () => {
 
             if (shouldAnimateRemoteScene && prevStage) {
                 const trans = data.live?.scene?.transition ?? data.sceneTransition ?? layoutSettingsRef.current.sceneTransition ?? DEFAULT_SCENE_TRANSITION;
-                startSceneTransition(prevStage, trans, nextBoxes, nextVis, nextEls);
+                startSceneTransition(prevStage, trans, nextBoxes, nextVis, nextEls, nextTheme);
             } else {
-                placeCameras(nextBoxes, nextVis, nextEls);
+                placeCameras(nextBoxes, nextVis, nextEls, { theme: nextTheme });
             }
         };
 
@@ -1387,9 +1498,17 @@ const OverlayLayout = () => {
                         // A local write happened while this GET was in flight — discard stale response.
                     } else if (res.status === 204) {
                         misses++;
+                        if (getErrorActive) {
+                            getErrorActive = false;
+                            setSyncError(null);
+                        }
                     } else if (res.ok) {
                         const raw = await res.json();
                         if (!isMounted || writeEpochRef.current !== epochAtStart) return;
+                        if (getErrorActive) {
+                            getErrorActive = false;
+                            setSyncError(null);
+                        }
                         const { _v, ...data } = raw;
                         lastVerRef.current = _v ?? null;
                         const firstLoad = !libLoaded;
@@ -1403,6 +1522,7 @@ const OverlayLayout = () => {
 
                         if (data._liveOnly) {
                             misses = 0;
+                            maybeAnimateRemoteSeq(data, firstLoad);
                         } else {
                             const designForSig = { ...data };
                             delete designForSig.serverNow;
@@ -1414,15 +1534,40 @@ const OverlayLayout = () => {
                                 applyData(data, firstLoad);
                             } else {
                                 misses++;
+                                maybeAnimateRemoteSeq(data, firstLoad);
                             }
                         }
                         if (firstLoad && isMounted) setLibReady(true);
+                    } else {
+                        const errData = await res.json().catch(() => null);
+                        if (!isMounted || writeEpochRef.current !== epochAtStart) return;
+                        if (!CLEAN_MODE) {
+                            getErrorActive = true;
+                            setSyncError(errData?.error || `Failed to load layout (HTTP ${res.status})`);
+                        }
+                        hydrateDefaultRoomLocally();
                     }
-                } catch { /* aborted / offline / transient — try again next tick */ }
+                } catch (err) {
+                    if (err?.name === 'AbortError' || ac.signal.aborted || !isMounted || writeEpochRef.current !== epochAtStart) {
+                        // Aborted / superseded
+                    } else {
+                        if (!CLEAN_MODE) {
+                            getErrorActive = true;
+                            setSyncError('Sync failed — check your connection.');
+                        }
+                        hydrateDefaultRoomLocally();
+                    }
+                }
             }
             if (!isMounted) return;
             const delay = misses >= POLL_MISSES_TO_SLOW ? POLL_SLOW : POLL_FAST;
             timer = setTimeout(tick, delay);
+        };
+
+        forcePollRef.current = () => {
+            misses = 0;
+            clearTimeout(timer);
+            tick(true);
         };
 
         // Poll promptly again whenever the tab regains focus.
@@ -1438,11 +1583,35 @@ const OverlayLayout = () => {
 
         return () => {
             isMounted = false;
+            forcePollRef.current = null;
             clearTimeout(timer);
             activeAbort?.abort();
             document.removeEventListener('visibilitychange', onVisible);
         };
     }, [placeCameras, captureCurrentStageSnapshot, startSceneTransition]);
+
+    const prevEditModeRef = useRef(editMode);
+    useEffect(() => {
+        const wasEditing = prevEditModeRef.current;
+        prevEditModeRef.current = editMode;
+        if (wasEditing && !editMode) {
+            forcePollRef.current?.();
+        }
+    }, [editMode]);
+
+    useEffect(() => {
+        if (!namingScene && !showBgPanel && !showThemePanel && !dockScenesOpen) return undefined;
+        const onKey = (e) => {
+            if (e.key !== 'Escape') return;
+            if (showGallery || helpTab || placingType) return;
+            setNamingScene(false);
+            setShowBgPanel(false);
+            setShowThemePanel(false);
+            setDockScenesOpen(false);
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [namingScene, showBgPanel, showThemePanel, dockScenesOpen, showGallery, helpTab, placingType]);
 
     // ?kit=<starter id> — sent by the /templates/* landing pages. Installs that
     // starter once the library has loaded, then drops the param so a reload
@@ -1610,9 +1779,9 @@ const OverlayLayout = () => {
                         </a>
                     </div>
                     {/* Right: actions */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: isNarrow ? '100%' : undefined }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: isNarrow ? '100%' : undefined, justifyContent: isNarrow ? 'flex-end' : undefined }}>
                         {namingScene ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: isNarrow ? 1 : undefined }}>
                                 <input
                                     autoFocus
                                     value={sceneNameDraft}
@@ -1623,7 +1792,7 @@ const OverlayLayout = () => {
                                     }}
                                     placeholder={`Scene ${(activeLayout?.scenes.length ?? 0) + 1}`}
                                     style={{
-                                        width: isNarrow ? 76 : 160, height: 42, minWidth: 0, padding: '0 8px', borderRadius: 5,
+                                        width: isNarrow ? 110 : 160, flex: isNarrow ? 1 : undefined, height: 42, minWidth: 0, padding: '0 8px', borderRadius: 5,
                                         border: '1px solid rgba(255,121,86,0.45)', background: 'rgba(255,121,86,0.12)',
                                         color: '#e0e7ff', fontSize: 10, fontFamily: 'monospace', outline: 'none',
                                     }}
@@ -1636,11 +1805,15 @@ const OverlayLayout = () => {
                         ) : (
                             <HdrBtn onClick={() => { setSceneNameDraft(''); setNamingScene(true); }}><Save size={12} style={{ marginRight: 4 }} />Save Scene</HdrBtn>
                         )}
-                        <HdrBtn title="Reset" icon={isNarrow} onClick={resetLayout}><RotateCcw size={12} style={{ marginRight: 4 }} />{!isNarrow && 'Reset'}</HdrBtn>
-                        <HdrBtn icon title="Help" onClick={() => openHelp('edit', 'edit_header')}><HelpCircle size={12} /></HdrBtn>
-                        <HdrSep />
+                        {!(isNarrow && namingScene) && (
+                            <>
+                                <HdrBtn title="Reset" icon={isNarrow} onClick={resetLayout}><RotateCcw size={12} style={{ marginRight: 4 }} />{!isNarrow && 'Reset'}</HdrBtn>
+                                <HdrBtn icon title="Help" onClick={() => openHelp('edit', 'edit_header')}><HelpCircle size={12} /></HdrBtn>
+                                <HdrSep />
+                            </>
+                        )}
                         <button
-                            onClick={() => { setEditMode(false); setSelectedBox(null); setSelectedElementId(null); setShowBgPanel(false); }}
+                            onClick={() => { setEditMode(false); setSelectedBox(null); setSelectedElementId(null); setShowBgPanel(false); setShowThemePanel(false); setNamingScene(false); }}
                             style={{ minHeight: 44, padding: '0 10px', borderRadius: 5, fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1, border: '1px solid rgba(255,121,86,0.45)', background: 'rgba(242,96,56,0.4)', color: '#fff', cursor: 'pointer' }}
                         ><Check size={11} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />Done</button>
                     </div>
@@ -1857,7 +2030,7 @@ const OverlayLayout = () => {
                                         ease: spec.ease,
                                         ...(spec.enter.times ? { times: spec.enter.times } : {}),
                                     } : { duration: 0 }}
-                                    onAnimationComplete={animating ? () => finishSceneTransition() : undefined}
+                                    onAnimationComplete={animating ? () => finishSceneTransition(exitStage.token) : undefined}
                                     style={{ position: 'absolute', inset: 0, zIndex: enterZ, willChange: 'transform, opacity, clip-path' }}
                                 >
                                     {inEditor && background && background.type !== 'transparent' && (
@@ -1897,6 +2070,8 @@ const OverlayLayout = () => {
                                                 selected={selectedElementId === el.id}
                                                 onSelect={selectElement}
                                                 onBoxChange={updateElementBox}
+                                                onLayerUp={elementUp}
+                                                onLayerDown={elementDown}
                                                 onUploadLogo={onUploadLogo}
                                                 onElementUpdate={updateElement}
                                                 editMode={editMode}
@@ -2085,6 +2260,29 @@ const OverlayLayout = () => {
                 </div>
             )}
 
+            {/* Save / sync error banner */}
+            {syncError && !CLEAN_MODE && (
+                <div
+                    role="alert"
+                    style={{
+                        position: 'absolute', bottom: editMode ? 18 : 70, left: '50%', transform: 'translateX(-50%)', zIndex: 420,
+                        display: 'flex', alignItems: 'center', gap: 10, maxWidth: 'min(420px, calc(100vw - 24px))',
+                        background: 'rgba(69,10,10,0.95)', border: '1px solid rgba(248,113,113,0.45)', borderRadius: 10,
+                        padding: '8px 12px', color: '#fecaca', fontFamily: 'monospace', fontSize: 11, boxShadow: '0 8px 32px rgba(0,0,0,0.65)',
+                    }}
+                >
+                    <span style={{ flex: 1, lineHeight: 1.4 }}>{syncError}</span>
+                    <button
+                        type="button"
+                        onClick={() => setSyncError(null)}
+                        aria-label="Dismiss error"
+                        style={{ background: 'none', border: 'none', color: '#fecaca', cursor: 'pointer', padding: 2, display: 'flex' }}
+                    >
+                        <X size={13} />
+                    </button>
+                </div>
+            )}
+
             {/* Go Live confirmation toast — bottom-center, above the dock */}
             <AnimatePresence>
                 {liveToast && !CLEAN_MODE && (
@@ -2093,10 +2291,20 @@ const OverlayLayout = () => {
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: 12 }}
                         transition={{ duration: 0.18 }}
-                        style={{ position: 'absolute', bottom: 64, left: '50%', transform: 'translateX(-50%)', zIndex: 400, maxWidth: 380, background: 'rgba(6,6,16,0.96)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,121,86,0.35)', borderRadius: 12, padding: '12px 16px', boxShadow: '0 8px 40px rgba(0,0,0,0.72)', color: 'rgba(255,255,255,0.9)', fontFamily: 'monospace' }}
+                        style={{ position: 'absolute', bottom: 64, left: '50%', transform: 'translateX(-50%)', zIndex: 400, width: 'min(380px, calc(100vw - 24px))', background: 'rgba(6,6,16,0.96)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,121,86,0.35)', borderRadius: 12, padding: '12px 16px', boxShadow: '0 8px 40px rgba(0,0,0,0.72)', color: 'rgba(255,255,255,0.9)', fontFamily: 'monospace' }}
                     >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: '#ff7956' }}>
-                            <Check size={13} />{liveToast.fresh ? 'Room created' : 'Live'} · {liveToast.room}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: '#ff7956' }}>
+                                <Check size={13} />{liveToast.fresh ? 'Room created' : 'Live'} · {liveToast.room}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => { clearTimeout(liveToastTimerRef.current); setLiveToast(null); }}
+                                aria-label="Dismiss notification"
+                                style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: 2, display: 'flex' }}
+                            >
+                                <X size={13} />
+                            </button>
                         </div>
                         <div style={{ marginTop: 6, fontSize: 10.5, lineHeight: 1.5, color: 'rgba(255,255,255,0.6)' }}>
                             {liveToast.copied ? 'OBS link copied to clipboard.' : 'Copy the OBS link below.'} Paste it into OBS as a Browser Source.

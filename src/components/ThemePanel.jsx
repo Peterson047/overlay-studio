@@ -1,4 +1,5 @@
 import { X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { THEMES } from '../theme/themes';
 import { THEME_PACKS, packGradient } from '../scenes/packs';
 import { BACKDROPS, FRAME_STYLES, LOWER_THIRDS, TEXT_FX } from './graphics';
@@ -96,20 +97,35 @@ const tabStyle = (active) => ({
 const ThemePanel = ({ theme, onApply, onChange, onInstallPack, onClose }) => {
     const t = theme ?? THEMES[0];
     const set = (changes) => onChange?.(changes);
+    const [narrow, setNarrow] = useState(() => (
+        typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+            ? window.matchMedia('(max-width: 759px)').matches
+            : false
+    ));
+    useEffect(() => {
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+        const mq = window.matchMedia('(max-width: 759px)');
+        const update = (e) => setNarrow(e.matches);
+        mq.addEventListener?.('change', update);
+        return () => mq.removeEventListener?.('change', update);
+    }, []);
 
     return (
         <div style={{
             position: 'absolute',
-            left: 248, top: 48,
+            left: narrow ? 12 : 248,
+            top: narrow ? 104 : 60,
             width: 240,
+            maxWidth: 'calc(100vw - 24px)',
+            maxHeight: narrow ? 'calc(100vh - 116px)' : 'calc(100vh - 72px)',
+            overflowY: 'auto',
+            overflowX: 'hidden',
             background: 'rgba(9,9,18,0.94)',
             backdropFilter: 'blur(14px)',
             border: '1px solid rgba(255,255,255,0.07)',
             borderRadius: 12,
-            zIndex: 350,
+            zIndex: 375,
             boxShadow: '0 8px 32px rgba(0,0,0,0.65)',
-            overflow: 'hidden',
-            maxHeight: 'calc(100% - 64px)', overflowY: 'auto',
         }}>
             {/* Header */}
             <div style={{

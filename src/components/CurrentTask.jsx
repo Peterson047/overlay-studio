@@ -2,6 +2,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Activity, CheckCircle2, Terminal, X } from 'lucide-react';
 import { useState } from 'react';
 
+const MotionDiv = motion.div;
+
 const CurrentTask = ({ tasks = [], onTasksChange }) => {
     const [newItem, setNewItem] = useState("");
 
@@ -23,7 +25,7 @@ const CurrentTask = ({ tasks = [], onTasksChange }) => {
     };
 
     return (
-        <motion.div
+        <MotionDiv
             className="w-full h-full bg-black/80 backdrop-blur-xl rounded-xl border border-white/10 flex flex-col overflow-hidden shadow-2xl relative group"
         >
             {/* Header / Input Area */}
@@ -56,7 +58,7 @@ const CurrentTask = ({ tasks = [], onTasksChange }) => {
             <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
                 <AnimatePresence mode='popLayout'>
                     {tasks.map((task) => (
-                        <motion.div
+                        <MotionDiv
                             key={task.id}
                             initial={{ x: -20, opacity: 0 }}
                             animate={{ x: 0, opacity: 1 }}
@@ -75,17 +77,19 @@ const CurrentTask = ({ tasks = [], onTasksChange }) => {
                                 )}
                             </button>
 
-                            <span className={`text-sm font-medium truncate flex-1 ${task.status === 'active' ? 'text-white' : 'text-gray-400 line-through decoration-white/20'}`}>
+                            <span className={`text-sm font-medium truncate flex-1 ${task.status === 'active' ? 'text-white' : task.status === 'done' ? 'text-gray-400 line-through decoration-white/20' : 'text-gray-200'}`}>
                                 {task.text}
                             </span>
 
                             <button
+                                type="button"
+                                aria-label="Remove task"
                                 onClick={() => removeTask(task.id)}
-                                className="opacity-0 group-hover/item:opacity-100 text-white/20 hover:text-red-400 transition-all focus:outline-none"
+                                className="opacity-60 sm:opacity-0 sm:group-hover/item:opacity-100 focus:opacity-100 text-white/40 hover:text-red-400 transition-all focus:outline-none"
                             >
                                 <X size={14} />
                             </button>
-                        </motion.div>
+                        </MotionDiv>
                     ))}
                 </AnimatePresence>
 
@@ -95,7 +99,7 @@ const CurrentTask = ({ tasks = [], onTasksChange }) => {
                     </div>
                 )}
             </div>
-        </motion.div>
+        </MotionDiv>
     );
 };
 

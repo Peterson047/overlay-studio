@@ -23,7 +23,35 @@ export default defineConfig([
       },
     },
     rules: {
-      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^[A-Z_]' }],
+    },
+  },
+  {
+    files: [
+      'api/**/*.js',
+      'backend/**/*.js',
+      'scripts/**/*.mjs',
+      'vite.config.js',
+      'eslint.config.js',
+      'layout.store.js',
+      'ports.config.js',
+      'scores.data.js',
+      'seo.config.js',
+    ],
+    languageOptions: {
+      globals: globals.node,
+    },
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
+  {
+    files: ['extension/**/*.js'],
+    languageOptions: {
+      globals: { ...globals.browser, chrome: 'readonly' },
+    },
+    rules: {
+      'react-refresh/only-export-components': 'off',
     },
   },
 ])

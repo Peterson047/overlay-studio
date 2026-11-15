@@ -16,18 +16,20 @@ import {
 // marketplace naming are accepted):
 //   UPSTASH_REDIS_REST_URL / KV_REST_API_URL
 //   UPSTASH_REDIS_REST_TOKEN / KV_REST_API_TOKEN
-const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-
 // Create the client lazily so a missing env var doesn't spam warnings at import
-// time and we can return one clear error instead.
-let _redis;
+// time and we can return one clear error instead. Reading env vars inside
+// getRedis() also picks up runtime/test updates dynamically.
+let _redisCache = null;
 function getRedis() {
-    if (!REDIS_URL || !REDIS_TOKEN) {
+    const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+    const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+    if (!url || !token) {
         throw new Error('KV not configured: set KV_REST_API_URL/KV_REST_API_TOKEN (or UPSTASH_REDIS_REST_URL/TOKEN) for this environment.');
     }
-    if (!_redis) _redis = new Redis({ url: REDIS_URL, token: REDIS_TOKEN });
-    return _redis;
+    if (!_redisCache || _redisCache.url !== url || _redisCache.token !== token) {
+        _redisCache = { url, token, client: new Redis({ url, token }) };
+    }
+    return _redisCache.client;
 }
 
 // Atomic Compare-And-Swap Lua commit so concurrent writes (e.g. a widget
@@ -48,11 +50,14 @@ return {1, ARGV[2]}
 
 // Older rooms stored `layouts` inside the main blob. Move it to its own key the
 // first time we touch the room; returns the main blob without it.
-async function splitLegacy(redis, keys, main) {
-    if (!main || !('layouts' in main)) return main;
+async function splitLegacy(redis, keys, main, isShared) {
+    if (!main || typeof main !== 'object' || !('layouts' in main)) return main;
     const { layouts, ...rest } = main;
+    const existingLib = isShared ? 'skip' : await redis.get(keys.libKey);
     const p = redis.pipeline();
-    p.set(keys.libKey, layouts ?? []);
+    if (!isShared && existingLib == null) {
+        p.set(keys.libKey, layouts ?? []);
+    }
     p.set(keys.key, rest);
     await p.exec();
     return rest;
@@ -74,8 +79,7 @@ async function commitWrite(redis, keys, expectedVer, plan) {
                 plan.writeLive ? JSON.stringify(plan.nextLive) : '',
             ],
         );
-        const ok = Array.isArray(res) ? Number(res[0]) === 1 : true;
-        return ok;
+        return Array.isArray(res) && Number(res[0]) === 1;
     }
 
     const p = redis.pipeline();
@@ -113,8 +117,9 @@ export default async function handler(req, res) {
             // polls answer with an empty 204 and timer/trigger updates read only live:<room>.
             let ver = await redis.get(keys.verKey);
             if (ver == null) {
-                ver = formatVer(newTag('d'), newTag('l'));
-                await redis.set(keys.verKey, ver);
+                const candidate = formatVer(newTag('d'), newTag('l'));
+                await redis.set(keys.verKey, candidate, { nx: true });
+                ver = (await redis.get(keys.verKey)) ?? candidate;
             }
             ver = String(ver);
 
@@ -124,7 +129,7 @@ export default async function handler(req, res) {
                 curVer: ver,
                 lite,
                 isShared,
-                getMain: async () => splitLegacy(redis, keys, await redis.get(keys.key)),
+                getMain: async () => splitLegacy(redis, keys, await redis.get(keys.key), isShared),
                 getLive: () => redis.get(keys.liveKey),
                 getLib: () => redis.get(keys.libKey),
             });
@@ -138,8 +143,26 @@ export default async function handler(req, res) {
         }
 
         if (req.method === 'POST') {
-            const body =
-                typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
+            const MAX_BYTES = 2_000_000;
+            if (typeof req.body === 'string' && req.body.length > MAX_BYTES) {
+                res.status(413).json({ error: 'Payload too large' });
+                return;
+            }
+            let body;
+            try {
+                body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
+            } catch {
+                res.status(400).json({ error: 'Invalid JSON body' });
+                return;
+            }
+            if (!body || typeof body !== 'object' || Array.isArray(body)) {
+                res.status(400).json({ error: 'Request body must be a JSON object' });
+                return;
+            }
+            if (typeof req.body !== 'string' && JSON.stringify(body).length > MAX_BYTES) {
+                res.status(413).json({ error: 'Payload too large' });
+                return;
+            }
 
             const MAX_RETRIES = 6;
             for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -183,6 +206,7 @@ export default async function handler(req, res) {
 
         res.status(405).json({ error: 'Method not allowed' });
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        console.error('[api/layout]', e);
+        res.status(500).json({ error: 'Internal server error' });
     }
 }

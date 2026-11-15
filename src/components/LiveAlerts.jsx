@@ -38,13 +38,21 @@ const wanted = (el, a) => {
     return true;
 };
 
+let sharedAudioCtx = null;
+const getAudioCtx = () => {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') sharedAudioCtx = new Ctx();
+    if (sharedAudioCtx.state === 'suspended') sharedAudioCtx.resume().catch(() => {});
+    return sharedAudioCtx;
+};
+
 // Short synthesized two-note chime (no audio asset to host). OBS plays it when
 // the browser source has "Control audio via OBS" on, or straight to desktop.
 const chime = (volume = 0.5) => {
     try {
-        const Ctx = window.AudioContext || window.webkitAudioContext;
-        if (!Ctx) return;
-        const ctx = new Ctx();
+        const ctx = getAudioCtx();
+        if (!ctx) return;
         [[880, 0], [1318.5, 0.12]].forEach(([freq, at]) => {
             const o = ctx.createOscillator();
             const g = ctx.createGain();
@@ -57,7 +65,6 @@ const chime = (volume = 0.5) => {
             o.start(ctx.currentTime + at);
             o.stop(ctx.currentTime + at + 0.65);
         });
-        setTimeout(() => ctx.close(), 1200);
     } catch { /* audio blocked — alerts still show */ }
 };
 
@@ -121,20 +128,20 @@ const AlertCard = ({ alert, element, T, leaving = false, ghost = false }) => {
 
 // ── Alert box ──────────────────────────────────────────────────────────────
 
-export const AlertBox = ({ element, T, channel: layoutChannel, editMode, liveTrigger, serverOffsetMs = 0 }) => {
+export const AlertBox = ({ element, T, channel: layoutChannel, editMode, preview = false, liveTrigger, serverOffsetMs = 0 }) => {
     const channel = normalizeChannel(element.channel || layoutChannel);
     const [queue, setQueue] = useState([]);
     const [leaving, setLeaving] = useState(false);
 
-    useTwitchAlerts(channel, (a) => {
-        if (wanted(element, a)) setQueue(q => [...q, a].slice(-20));
+    useTwitchAlerts(preview ? '' : channel, (a) => {
+        if (!preview && wanted(element, a)) setQueue(q => [...q, a].slice(-20));
     });
 
     // Live triggers pushed via liveState.triggers[element.id]; ignore stale
     // triggers older than 15s on initial mount so reopening ?obs doesn't replay.
     const seenSeqRef = useRef(null);
     useEffect(() => {
-        if (!liveTrigger || (liveTrigger.kind && liveTrigger.kind !== 'alerts')) return undefined;
+        if (preview || !liveTrigger || (liveTrigger.kind && liveTrigger.kind !== 'alerts')) return undefined;
         const seq = liveTrigger.seq ?? liveTrigger.at;
         if (seq == null) return undefined;
         if (seenSeqRef.current === null) {
@@ -157,20 +164,24 @@ export const AlertBox = ({ element, T, channel: layoutChannel, editMode, liveTri
             setQueue(q => [...q, alert].slice(-20));
         });
         return () => cancelAnimationFrame(raf);
-    }, [liveTrigger, serverOffsetMs]);
+    }, [preview, liveTrigger, serverOffsetMs]);
 
     // Test alerts are published on the element as { type, at } so the editor
     // and the OBS source both play them. A test that predates mount is ignored.
     const testAt = element.test?.at ?? 0;
-    const [seenTest, setSeenTest] = useState(testAt);
-    if (testAt && testAt !== seenTest) {
-        setSeenTest(testAt);
-        setQueue(q => [...q, sampleAlert(element.test.type, testAt)].slice(-20));
-    }
+    const seenTestRef = useRef(testAt);
+    useEffect(() => {
+        if (preview || !testAt || testAt === seenTestRef.current) return undefined;
+        seenTestRef.current = testAt;
+        const raf = requestAnimationFrame(() => {
+            setQueue(q => [...q, sampleAlert(element.test?.type, testAt)].slice(-20));
+        });
+        return () => cancelAnimationFrame(raf);
+    }, [preview, testAt, element.test?.type]);
 
     const current = queue[0] ?? null;
     const durationMs = Math.max(2, element.durationSec ?? 6) * 1000;
-    const muted = editMode || element.sound === false;
+    const muted = preview || editMode || element.sound === false;
     const volume = element.volume ?? 0.5;
     const playedRef = useRef(null);
     useEffect(() => {
@@ -204,7 +215,7 @@ const SAMPLE_EVENTS = ['raid', 'giftbomb', 'cheer', 'resub', 'sub'].map((t, i) =
 
 export const EventList = ({ element, T, channel: layoutChannel, editMode, preview }) => {
     const channel = normalizeChannel(element.channel || layoutChannel);
-    const { alerts } = useTwitchEvents(channel);
+    const { alerts } = useTwitchEvents(preview ? '' : channel);
     const showSample = !channel || (editMode && alerts.length === 0);
     if (showSample && !editMode && !preview) return null;
 

@@ -10,21 +10,21 @@ import { SAMPLE_MATCHES, fetchMatches } from '../scores.data.js';
 //   FOOTBALL_DATA_TOKEN        — your football-data.org API token (required for live data)
 //   FOOTBALL_DATA_COMPETITION  — competition code, defaults to WC (World Cup)
 //   KV_REST_API_URL / _TOKEN   — same KV as api/layout.js (optional; just disables caching if absent)
-const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-const TOKEN = process.env.FOOTBALL_DATA_TOKEN;
-const COMPETITION = process.env.FOOTBALL_DATA_COMPETITION || 'WC';
 // Shared snapshot TTL. The KV cache means every viewer reads the same data and
 // the upstream feed is hit at most once per TTL no matter how many viewers —
 // 10s = up to 6 calls/min, safely under the free tier's 10/min.
 const CACHE_TTL = 10; // seconds
 const SAMPLE_UPDATED_AT = 1;
 
-let _redis;
+let _redisCache = null;
 function getRedis() {
-    if (!REDIS_URL || !REDIS_TOKEN) return null;
-    if (!_redis) _redis = new Redis({ url: REDIS_URL, token: REDIS_TOKEN });
-    return _redis;
+    const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+    const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+    if (!url || !token) return null;
+    if (!_redisCache || _redisCache.url !== url || _redisCache.token !== token) {
+        _redisCache = { url, token, client: new Redis({ url, token }) };
+    }
+    return _redisCache.client;
 }
 
 export default async function handler(req, res) {
@@ -35,17 +35,19 @@ export default async function handler(req, res) {
     if (req.method === 'OPTIONS') { res.status(204).end(); return; }
     if (req.method !== 'GET') { res.status(405).json({ error: 'Method not allowed' }); return; }
 
+    const token = process.env.FOOTBALL_DATA_TOKEN;
+    const competition = process.env.FOOTBALL_DATA_COMPETITION || 'WC';
     const clientVer = req.query?.v != null ? String(req.query.v) : '';
 
     // No token configured → serve sample fixtures with a stable timestamp so
     // polling clients with `?v=` get 204 instead of downloading fixtures repeatedly.
-    if (!TOKEN) {
+    if (!token) {
         if (clientVer === String(SAMPLE_UPDATED_AT)) { res.status(204).end(); return; }
         res.status(200).json({ configured: false, updatedAt: SAMPLE_UPDATED_AT, matches: SAMPLE_MATCHES });
         return;
     }
 
-    const cacheKey = `scores:${COMPETITION}`;
+    const cacheKey = `scores:${competition}`;
     try {
         const redis = getRedis();
         if (redis) {
@@ -59,12 +61,13 @@ export default async function handler(req, res) {
                 return;
             }
         }
-        const matches = await fetchMatches(TOKEN, COMPETITION);
+        const matches = await fetchMatches(token, competition);
         const payload = { configured: true, updatedAt: Date.now(), matches };
         if (redis) await redis.set(cacheKey, payload, { ex: CACHE_TTL });
         res.status(200).json(payload);
     } catch (e) {
-        // Surface the error but keep the response shape so the UI degrades cleanly.
-        res.status(200).json({ configured: true, error: e.message, updatedAt: Date.now(), matches: [] });
+        console.error('[api/scores]', e);
+        // Surface the error status but keep internal error text private.
+        res.status(200).json({ configured: true, error: 'Failed to load match feed', updatedAt: Date.now(), matches: [] });
     }
 }

@@ -1,5 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useMemo, useState } from 'react';
+
+const MotionDiv = motion.div;
 import { STARTER_LAYOUTS } from '../scenes/starterLayouts';
 import { getTheme } from '../theme/themes';
 import { bgToStyle } from './BackgroundPanel';
@@ -120,7 +122,7 @@ const Scene = ({ step }) => {
 const Caption = ({ step }) => {
     const theme = getTheme(step.starter.themeId);
     return (
-        <motion.div
+        <MotionDiv
             initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
             transition={{ duration: 0.4, delay: 0.25 }}
             style={{
@@ -134,7 +136,7 @@ const Caption = ({ step }) => {
                 <span style={{ fontSize: 26, fontWeight: 700 }}>{step.starter.name}</span>
                 <span style={{ fontSize: 17, opacity: 0.65 }}>{step.scene.name}</span>
             </span>
-        </motion.div>
+        </MotionDiv>
     );
 };
 
@@ -143,13 +145,13 @@ const Card = ({ title, sub, foot, vertical = false }) => (
         position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 22,
         background: 'radial-gradient(ellipse at 50% 40%, #1d1b4b, #07070f 70%)', color: '#fff', fontFamily: "'Space Grotesk', Inter, sans-serif", textAlign: 'center',
     }}>
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}
-            style={{ fontSize: vertical ? 120 : 104, fontWeight: 700, letterSpacing: -2, lineHeight: 1.02, maxWidth: vertical ? 900 : 'none' }}>{title}</motion.div>
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 0.75 }} transition={{ duration: 0.6, delay: 0.3 }}
-            style={{ fontSize: vertical ? 44 : 38, maxWidth: vertical ? 860 : 'none', lineHeight: 1.3 }}>{sub}</motion.div>
+        <MotionDiv initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}
+            style={{ fontSize: vertical ? 120 : 104, fontWeight: 700, letterSpacing: -2, lineHeight: 1.02, maxWidth: vertical ? 900 : 'none' }}>{title}</MotionDiv>
+        <MotionDiv initial={{ opacity: 0 }} animate={{ opacity: 0.75 }} transition={{ duration: 0.6, delay: 0.3 }}
+            style={{ fontSize: vertical ? 44 : 38, maxWidth: vertical ? 860 : 'none', lineHeight: 1.3 }}>{sub}</MotionDiv>
         {foot && (
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.5, delay: 0.6 }}
-                style={{ marginTop: 18, padding: '14px 30px', borderRadius: 999, background: '#f1f1f5', color: '#0b0b12', fontSize: 30, fontWeight: 700 }}>{foot}</motion.div>
+            <MotionDiv initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.5, delay: 0.6 }}
+                style={{ marginTop: 18, padding: '14px 30px', borderRadius: 999, background: '#f1f1f5', color: '#0b0b12', fontSize: 30, fontWeight: 700 }}>{foot}</MotionDiv>
         )}
     </div>
 );
@@ -165,10 +167,10 @@ const VerticalFrame = ({ step }) => {
         }}>
             <div style={{ position: 'absolute', top: 150, left: 0, right: 0, textAlign: 'center' }}>
                 <div style={{ fontSize: 30, letterSpacing: 8, textTransform: 'uppercase', opacity: 0.6 }}>qorpStreamer</div>
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, delay: 0.15 }}
+                <MotionDiv initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, delay: 0.15 }}
                     style={{ fontSize: 108, fontWeight: 700, letterSpacing: -2, marginTop: 34, lineHeight: 1 }}>
                     {step.starter.name}
-                </motion.div>
+                </MotionDiv>
                 <div style={{ width: 120, height: 8, borderRadius: 4, margin: '34px auto 0', background: `linear-gradient(90deg, ${theme.accent}, ${theme.accent2})` }} />
                 <div style={{ fontSize: 44, marginTop: 30, opacity: 0.8 }}>{step.scene.name}</div>
             </div>
@@ -286,12 +288,12 @@ const Player = () => {
         <div style={{ position: 'fixed', inset: 0, background: '#000', overflow: 'hidden' }}>
             <div style={{ position: 'absolute', left: '50%', top: '50%', width: fw, height: fh, transform: `translate(-50%, -50%) scale(${scale})`, overflow: 'hidden' }}>
                 <AnimatePresence mode="sync">
-                    <motion.div key={key} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: FADE_S }}
+                    <MotionDiv key={key} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: FADE_S }}
                         style={{ position: 'absolute', inset: 0 }}>
                         {(phase === 'wait' || phase === 'intro') && <Card vertical={vertical} title="qorpStreamer" sub="Free stream overlays for OBS — design in your browser" />}
                         {step && (vertical ? <VerticalFrame step={step} /> : <><Scene step={step} /><Caption step={step} /></>)}
                         {(phase === 'outro' || phase === 'done') && <Card vertical={vertical} title={`${count} free templates`} sub="Twitch chat · alerts · animated scenes · one link into OBS" foot="qorpStreamer · Qorp" />}
-                    </motion.div>
+                    </MotionDiv>
                 </AnimatePresence>
             </div>
         </div>

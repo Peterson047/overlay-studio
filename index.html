@@ -7,15 +7,15 @@
     <meta name="theme-color" content="#151714" />
 
     <title>qorpStreamer — Editor de overlays para OBS</title>
-    <meta name="description" content="Free browser-based stream overlay maker for YouTube, Twitch and Kick. Drag and drop cameras, live match scores, goals, timers, pets and themes onto a canvas, then add it to OBS or Streamlabs with one link. Nothing to install." />
+    <meta name="description" content="Editor gratuito de overlays para lives no YouTube, Twitch e Kick direto no navegador. Posicione câmeras, placares ao vivo, metas, cronômetros, pets e temas em um canvas 16:9 e adicione ao OBS ou Streamlabs com um único link." />
 
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="qorpStreamer" />
     <meta property="og:title" content="qorpStreamer — Editor de overlays para OBS" />
-    <meta property="og:description" content="Design your stream overlay in the browser, then drop one link into OBS. Works with YouTube, Twitch, Kick and more — free, nothing to install." />
+    <meta property="og:description" content="Crie seu overlay de live no navegador e cole um único link no OBS. Funciona no YouTube, Twitch, Kick e mais — grátis, sem instalar nada." />
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="qorpStreamer — Editor de overlays para OBS" />
-    <meta name="twitter:description" content="Design your stream overlay in the browser, then drop one link into OBS. Free, nothing to install." />
+    <meta name="twitter:description" content="Crie seu overlay de live no navegador e cole um único link no OBS. Grátis e sem instalação." />
 
     <script type="application/ld+json">
     {
@@ -25,14 +25,14 @@
       "publisher": { "@type": "Organization", "name": "Qorp", "url": "https://qorp.com.br" },
       "applicationCategory": "MultimediaApplication",
       "operatingSystem": "Any (web browser)",
-      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-      "description": "Free browser-based stream overlay editor for YouTube, Twitch, Kick and other live streaming platforms. Arrange cameras, live scores, goals, timers and widgets on a canvas and add the overlay to OBS, Streamlabs Desktop or XSplit as a browser source with one link."
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "BRL" },
+      "description": "Editor gratuito de overlays para lives no navegador para YouTube, Twitch, Kick e outras plataformas. Organize câmeras, placares ao vivo, metas, cronômetros e widgets em um canvas 16:9 e adicione ao OBS, Streamlabs Desktop ou XSplit com um link."
     }
     </script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=Monoton&family=Fredoka:wght@400;500;600;700&family=Caveat:wght@500;700&family=Anton&family=VT323&family=Press+Start+2P&family=Playfair+Display:ital,wght@0,600;0,800;1,600&family=Cinzel:wght@600;800&family=Shojumaru&family=Creepster&family=Teko:wght@500;700&family=Pacifico&family=Audiowide&family=Yatra+One&family=Cinzel+Decorative:wght@700;900&family=Mountains+of+Christmas:wght@700&family=Henny+Penny&family=Bungee&family=Ma+Shan+Zheng&family=Aref+Ruqaa:wght@700&family=Great+Vibes&family=Bebas+Neue&family=Saira+Stencil+One&family=Luckiest+Guy&family=Black+Ops+One&family=Chakra+Petch:wght@600;700&family=Silkscreen:wght@400;700&family=Russo+One&family=Lilita+One&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=Monoton&family=Fredoka:wght@400;500;600;700&family=Caveat:wght@500;700&family=Anton&family=VT323&family=Press+Start+2P&family=Playfair+Display:ital,wght@0,600;0,800;1,600&family=Cinzel:wght@600;800&family=Shojumaru&family=Creepster&family=Teko:wght@500;700&family=Pacifico&family=Audiowide&family=Yatra+One&family=Cinzel+Decorative:wght@700;900&family=Mountains+of+Christmas:wght@700&family=Henny+Penny&family=Bungee&family=Ma+Shan+Zheng&family=Aref+Ruqaa:wght@700&family=Great+Vibes&family=Bebas+Neue&family=Saira+Stencil+One&family=Luckiest+Guy&family=Black+Ops+One&family=Chakra+Petch:wght@600;700&family=Silkscreen:wght@400;700&family=Russo+One&family=Lilita+One&display=swap" rel="stylesheet" />
   </head>
   <body>
     <!-- Static copy of the landing content so crawlers get real text without
@@ -41,29 +41,29 @@
     <div id="root">
       <div style="min-height:100vh;background:#151714;color:#f0f0e9;font-family:'Inter',system-ui,sans-serif;padding:72px 28px;box-sizing:border-box">
         <main style="max-width:940px;margin:0 auto">
-          <p style="font-size:12px;font-weight:600;letter-spacing:3px;text-transform:uppercase;color:rgba(240,240,233,0.34)">Browser-native stream overlays</p>
-          <h1 style="font-family:'Space Grotesk','Inter',system-ui,sans-serif;font-weight:700;font-size:clamp(38px,7vw,76px);line-height:1.02;letter-spacing:-1.5px;margin:20px 0 0;max-width:760px">Design your stream overlay, then drop one link into OBS.</h1>
-          <p style="font-size:17px;color:rgba(240,240,233,0.56);max-width:540px;line-height:1.6;margin:26px 0 0">qorpStreamer is a free stream overlay editor that runs in your browser. Arrange cameras, live match scores, follower goals, timers, pets and themes on a real 16:9 canvas — then add the overlay to OBS as a browser source with a single link. Nothing to install.</p>
+          <p style="font-size:12px;font-weight:600;letter-spacing:3px;text-transform:uppercase;color:rgba(240,240,233,0.34)">Overlays para live direto no navegador</p>
+          <h1 style="font-family:'Space Grotesk','Inter',system-ui,sans-serif;font-weight:700;font-size:clamp(38px,7vw,76px);line-height:1.02;letter-spacing:-1.5px;margin:20px 0 0;max-width:760px">Monte seu overlay e leve para o OBS com um link.</h1>
+          <p style="font-size:17px;color:rgba(240,240,233,0.56);max-width:540px;line-height:1.6;margin:26px 0 0">qorpStreamer é um editor gratuito de overlays que roda direto no navegador. Posicione câmeras, placares ao vivo, metas de inscritos, cronômetros, pets e temas em um canvas 16:9 — e adicione ao OBS como fonte de navegador com um único link, sem instalar nada.</p>
           <section style="margin-top:48px">
-            <h2 style="font-family:'Space Grotesk','Inter',system-ui,sans-serif;font-size:20px;letter-spacing:-0.3px">Works with</h2>
-            <p style="color:rgba(240,240,233,0.56);line-height:1.7;max-width:640px">Stream to YouTube, Twitch, Kick, Facebook Live, X, TikTok LIVE (with a stream key) or any RTMP platform. Add the overlay as a browser source in OBS Studio, Streamlabs Desktop, XSplit or Meld Studio.</p>
+            <h2 style="font-family:'Space Grotesk','Inter',system-ui,sans-serif;font-size:20px;letter-spacing:-0.3px">Compatível com</h2>
+            <p style="color:rgba(240,240,233,0.56);line-height:1.7;max-width:640px">Transmita para YouTube, Twitch, Kick, Facebook Live, X, TikTok LIVE ou qualquer plataforma RTMP. Adicione o overlay como fonte de navegador no OBS Studio, Streamlabs Desktop, XSplit ou Meld Studio.</p>
           </section>
           <section style="margin-top:48px">
-            <h2 style="font-family:'Space Grotesk','Inter',system-ui,sans-serif;font-size:20px;letter-spacing:-0.3px">What's inside</h2>
+            <h2 style="font-family:'Space Grotesk','Inter',system-ui,sans-serif;font-size:20px;letter-spacing:-0.3px">O que está incluído</h2>
             <ul style="color:rgba(240,240,233,0.56);line-height:1.8;padding-left:20px;max-width:640px">
-              <li><strong style="color:#f0f0e9">Drag-and-drop editor</strong> — place cameras, text and widgets on a live 16:9 canvas. No code.</li>
-              <li><strong style="color:#f0f0e9">OBS browser source</strong> — one link drops the overlay straight into OBS, and edits sync live.</li>
-              <li><strong style="color:#f0f0e9">Live match scoreboard</strong> — pick a fixture and the score keeps itself up to date on stream.</li>
-              <li><strong style="color:#f0f0e9">Pets &amp; mood ring</strong> — little mascots that roam the canvas and shift with the mood of the room.</li>
-              <li><strong style="color:#f0f0e9">Goals, timers &amp; widgets</strong> — follower and sub goals, countdowns, a pomodoro, tickers, sticky notes, a spin wheel.</li>
-              <li><strong style="color:#f0f0e9">Themes &amp; recording</strong> — re-skin the whole overlay in a click, and record the stream right in the browser.</li>
+              <li><strong style="color:#f0f0e9">Editor arrastar e soltar</strong> — posicione câmeras, textos e widgets em um canvas 16:9 em tempo real. Sem código.</li>
+              <li><strong style="color:#f0f0e9">Fonte de navegador para OBS</strong> — um único link leva o overlay ao vivo para o OBS, e as edições sincronizam automaticamente.</li>
+              <li><strong style="color:#f0f0e9">Placar ao vivo</strong> — escolha a partida e o placar se atualiza sozinho durante a transmissão.</li>
+              <li><strong style="color:#f0f0e9">Pets e anel de humor</strong> — mascotes interativos que circulam pela tela e reagem ao clima da live.</li>
+              <li><strong style="color:#f0f0e9">Metas, timers e widgets</strong> — metas de seguidores e inscritos, contagens regressivas, pomodoro, letreiros, recados e roleta.</li>
+              <li><strong style="color:#f0f0e9">Temas e gravação</strong> — troque o visual completo do overlay em um clique e grave direto no navegador.</li>
             </ul>
           </section>
           <section style="margin-top:48px">
-            <h2 style="font-family:'Space Grotesk','Inter',system-ui,sans-serif;font-size:20px;letter-spacing:-0.3px">Free templates</h2>
-            <p style="color:rgba(240,240,233,0.56);line-height:1.7;max-width:640px">Start from a ready-made kit: <a href="/templates/gta-6-stream-overlay/" style="color:#f0f0e9">GTA 6</a>, <a href="/templates/fortnite-stream-overlay/" style="color:#f0f0e9">Fortnite</a>, <a href="/templates/cs2-faceit-overlay/" style="color:#f0f0e9">CS2 &amp; FACEIT</a>, <a href="/templates/valorant-stream-overlay/" style="color:#f0f0e9">Valorant</a>, <a href="/templates/christmas-stream-overlay/" style="color:#f0f0e9">Christmas</a> and <a href="/templates/" style="color:#f0f0e9">more templates</a>. New to OBS? Read <a href="/guides/add-overlay-to-obs/" style="color:#f0f0e9">how to add an overlay to OBS</a>.</p>
+            <h2 style="font-family:'Space Grotesk','Inter',system-ui,sans-serif;font-size:20px;letter-spacing:-0.3px">Templates gratuitos</h2>
+            <p style="color:rgba(240,240,233,0.56);line-height:1.7;max-width:640px">Comece a partir de um kit pronto: <a href="/templates/gta-6-stream-overlay/" style="color:#f0f0e9">GTA 6</a>, <a href="/templates/fortnite-stream-overlay/" style="color:#f0f0e9">Fortnite</a>, <a href="/templates/cs2-faceit-overlay/" style="color:#f0f0e9">CS2 &amp; FACEIT</a>, <a href="/templates/valorant-stream-overlay/" style="color:#f0f0e9">Valorant</a>, <a href="/templates/christmas-stream-overlay/" style="color:#f0f0e9">Natal</a> e <a href="/templates/" style="color:#f0f0e9">mais templates</a>. Novo no OBS? Leia <a href="/guides/add-overlay-to-obs/" style="color:#f0f0e9">como adicionar um overlay no OBS</a>.</p>
           </section>
-          <p style="margin-top:40px"><a href="/?studio" style="color:#ff7956">Open the studio</a> · <a href="/templates/" style="color:rgba(240,240,233,0.56)">Templates</a></p>
+          <p style="margin-top:40px"><a href="/?studio" style="color:#ff7956">Abrir o estúdio</a> · <a href="/templates/" style="color:rgba(240,240,233,0.56)">Templates</a></p>
         </main>
       </div>
     </div>

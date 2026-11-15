@@ -8,6 +8,7 @@ import { BACKDROPS, FRAME_STYLES, LOWER_THIRDS, TEXT_FX, isGraphicFrame } from '
 import { normalizeChannel } from '../live/twitchChat';
 import { scaleImageFile } from '../utils/imageScale.js';
 import { ADD_SECTIONS, ELEMENT_TYPE_MAP } from './elementCatalog';
+import { computePomodoroState } from './ElementRenderer';
 
 // "Theme" entries store the token, so the element follows theme switches.
 const withThemeOption = (list, token) => [{ value: token, label: 'Theme default' }, ...list.map(o => ({ value: o.id, label: o.label }))];
@@ -436,27 +437,12 @@ const computeCountdownRemaining = (liveEntry, durationSec, nowMs) => {
     }
     if (state === 'paused') {
         const rem = liveEntry.remainingSec != null ? Number(liveEntry.remainingSec) : dur;
-        return { state: 'paused', remainingSec: Math.max(0, Math.round(rem)) };
+        return { state: 'paused', remainingSec: Math.max(0, Math.ceil(rem)) };
     }
     const baseRem = liveEntry.remainingSec != null ? Number(liveEntry.remainingSec) : dur;
     const anchor = Number(liveEntry.anchorAt);
     const elapsed = Number.isFinite(anchor) ? Math.max(0, (nowMs - anchor) / 1000) : 0;
-    return { state: 'running', remainingSec: Math.max(0, Math.round(baseRem - elapsed)) };
-};
-
-const computePomodoroSnapshot = (liveEntry, workMin, breakMin, nowMs) => {
-    const phase = liveEntry?.phase === 'break' ? 'break' : 'work';
-    const phaseDur = (phase === 'break' ? Math.max(1, Number(breakMin) || 5) : Math.max(1, Number(workMin) || 25)) * 60;
-    const count = Math.max(0, Number(liveEntry?.count ?? 0));
-    const state = liveEntry?.state === 'running' ? 'running' : 'paused';
-    if (state === 'running') {
-        const baseRem = liveEntry?.remainingSec != null ? Number(liveEntry.remainingSec) : phaseDur;
-        const anchor = Number(liveEntry?.anchorAt);
-        const elapsed = Number.isFinite(anchor) ? Math.max(0, (nowMs - anchor) / 1000) : 0;
-        return { state: 'running', phase, remainingSec: Math.max(0, Math.round(baseRem - elapsed)), count };
-    }
-    const rem = liveEntry?.remainingSec != null ? Number(liveEntry.remainingSec) : phaseDur;
-    return { state: 'paused', phase, remainingSec: Math.max(0, Math.round(rem)), count };
+    return { state: 'running', remainingSec: Math.max(0, Math.ceil(baseRem - elapsed)) };
 };
 
 // Count goals in scorer text while tolerating spaces, hyphens, accents, and digits inside player names.
@@ -538,24 +524,30 @@ const ElementEditor = ({
     const [matchFeed, setMatchFeed] = useState(null);
     const [matchQuery, setMatchQuery] = useState('');
     const liveTimer = element?.id ? liveState?.timers?.[element.id] : null;
+    const liveTrigger = element?.id ? liveState?.triggers?.[element.id] : null;
     const isTimerRunning = (element?.type === 'countdown' || element?.type === 'pomodoro') && liveTimer?.state === 'running';
     const [tickNow, setTickNow] = useState(() => Date.now());
+    const [wheelSpinUntil, setWheelSpinUntil] = useState(0);
+    const liveWheelEndLocal = element?.type === 'wheel' && liveTrigger?.kind === 'wheel' && typeof liveTrigger.at === 'number'
+        ? (liveTrigger.at - serverOffsetMs) + (liveTrigger.spinSec ?? element?.spinSec ?? 4) * 1000
+        : 0;
+    const isWheelSpinning = element?.type === 'wheel' && Math.max(wheelSpinUntil, liveWheelEndLocal) > tickNow;
     useEffect(() => {
-        if (!isTimerRunning) return undefined;
+        if (!isTimerRunning && !isWheelSpinning) return undefined;
         const initId = setTimeout(() => setTickNow(Date.now()), 0);
         const intervalId = setInterval(() => setTickNow(Date.now()), 250);
         return () => {
             clearTimeout(initId);
             clearInterval(intervalId);
         };
-    }, [isTimerRunning]);
+    }, [isTimerRunning, isWheelSpinning]);
     useEffect(() => {
-        if (element?.type !== 'match') return;
+        if (element?.type !== 'match') return undefined;
         let alive = true;
         fetch(scoresUrl())
-            .then(r => (r.ok ? r.json() : null))
-            .then(d => { if (alive && d) setMatchFeed(d); })
-            .catch(() => {});
+            .then(r => (r.ok ? r.json() : { matches: [], error: `HTTP ${r.status}` }))
+            .then(d => { if (alive) setMatchFeed(d); })
+            .catch(() => { if (alive) setMatchFeed({ matches: [], error: 'Unable to reach match feed' }); });
         return () => { alive = false; };
     }, [element?.type, element?.id]);
     if (!element) return null;
@@ -673,18 +665,30 @@ const ElementEditor = ({
                             anchorAt: now,
                         });
                     };
+                    const updateDuration = (nextDur) => {
+                        set('durationSec', nextDur);
+                        if (liveTimer?.kind === 'countdown' && liveTimer.state === 'stopped') {
+                            onLiveAction?.('timers', element.id, {
+                                kind: 'countdown',
+                                state: 'stopped',
+                                durationSec: nextDur,
+                                remainingSec: nextDur,
+                                anchorAt: Date.now() + serverOffsetMs,
+                            });
+                        }
+                    };
                     return (
                         <>
                             <Group label="Duration">
                                 <NumberInput
                                     value={Math.floor((element.durationSec ?? 0) / 60)}
-                                    onChange={v => set('durationSec', Math.max(0, v) * 60 + (element.durationSec ?? 0) % 60)}
+                                    onChange={v => updateDuration(Math.max(0, v) * 60 + (element.durationSec ?? 0) % 60)}
                                     min={0} max={180} style={{ width: 52 }}
                                 />
                                 <span style={UNIT}>min</span>
                                 <NumberInput
                                     value={(element.durationSec ?? 0) % 60}
-                                    onChange={v => set('durationSec', Math.floor((element.durationSec ?? 0) / 60) * 60 + Math.min(59, Math.max(0, v)))}
+                                    onChange={v => updateDuration(Math.floor((element.durationSec ?? 0) / 60) * 60 + Math.min(59, Math.max(0, v)))}
                                     min={0} max={59} style={{ width: 52 }}
                                 />
                                 <span style={UNIT}>sec</span>
@@ -928,18 +932,23 @@ const ElementEditor = ({
                         <Group label="Live">
                             <ToggleBtn
                                 active={false}
+                                disabled={isWheelSpinning}
                                 onClick={() => {
                                     const count = Math.max(2, (element.options ?? []).length);
                                     const idx = Math.floor(Math.random() * count);
+                                    const spinSec = element.spinSec ?? 4;
+                                    const now = Date.now();
+                                    setTickNow(now);
+                                    setWheelSpinUntil(now + spinSec * 1000);
                                     if (onLiveAction) {
-                                        onLiveAction('triggers', element.id, { kind: 'wheel', idx, spinSec: element.spinSec ?? 4 });
+                                        onLiveAction('triggers', element.id, { kind: 'wheel', idx, spinSec });
                                     } else {
-                                        fallbackUpdate?.({ spin: { idx, at: Date.now() } });
+                                        fallbackUpdate?.({ spin: { idx, at: now } });
                                     }
                                 }}
-                                title="Trigger a wheel spin now"
+                                title={isWheelSpinning ? 'Wheel is currently spinning' : 'Trigger a wheel spin now'}
                             >
-                                Spin Wheel Now
+                                {isWheelSpinning ? 'Spinning…' : 'Spin Wheel Now'}
                             </ToggleBtn>
                         </Group>
                         <Hint>
@@ -985,12 +994,12 @@ const ElementEditor = ({
                 {type === 'pomodoro' && (() => {
                     const workMin = Math.max(1, Number(element.workMin ?? 25));
                     const breakMin = Math.max(1, Number(element.breakMin ?? 5));
-                    const pomoSnap = computePomodoroSnapshot(liveTimer, workMin, breakMin, nowSyncedMs);
+                    const pomoSnap = computePomodoroState(liveTimer, element, nowSyncedMs);
                     const isRunning = pomoSnap.state === 'running';
                     const playPomodoro = () => {
                         const now = Date.now() + serverOffsetMs;
                         setTickNow(Date.now());
-                        const snap = computePomodoroSnapshot(liveTimer, workMin, breakMin, now);
+                        const snap = computePomodoroState(liveTimer, element, now);
                         const phaseDur = (snap.phase === 'break' ? breakMin : workMin) * 60;
                         const rem = snap.remainingSec > 0 ? snap.remainingSec : phaseDur;
                         onLiveAction?.('timers', element.id, {
@@ -1006,7 +1015,7 @@ const ElementEditor = ({
                     };
                     const pausePomodoro = () => {
                         const now = Date.now() + serverOffsetMs;
-                        const snap = computePomodoroSnapshot(liveTimer, workMin, breakMin, now);
+                        const snap = computePomodoroState(liveTimer, element, now);
                         onLiveAction?.('timers', element.id, {
                             kind: 'pomodoro',
                             state: 'paused',
@@ -1020,7 +1029,7 @@ const ElementEditor = ({
                     };
                     const skipPomodoroPhase = () => {
                         const now = Date.now() + serverOffsetMs;
-                        const snap = computePomodoroSnapshot(liveTimer, workMin, breakMin, now);
+                        const snap = computePomodoroState(liveTimer, element, now);
                         const nextPhase = snap.phase === 'work' ? 'break' : 'work';
                         const nextCount = snap.phase === 'work' ? snap.count + 1 : snap.count;
                         const nextRem = (nextPhase === 'break' ? breakMin : workMin) * 60;
@@ -1048,12 +1057,28 @@ const ElementEditor = ({
                             anchorAt: now,
                         });
                     };
+                    const updateInterval = (nextWork, nextBreak) => {
+                        applyElementChange?.({ workMin: nextWork, breakMin: nextBreak });
+                        if (liveTimer?.kind === 'pomodoro' && liveTimer.state !== 'running') {
+                            const phase = liveTimer.phase === 'break' ? 'break' : 'work';
+                            const nextRem = phase === 'break'
+                                ? (nextBreak !== breakMin ? nextBreak * 60 : liveTimer.remainingSec)
+                                : (nextWork !== workMin ? nextWork * 60 : liveTimer.remainingSec);
+                            onLiveAction?.('timers', element.id, {
+                                ...liveTimer,
+                                kind: 'pomodoro',
+                                workMin: nextWork,
+                                breakMin: nextBreak,
+                                remainingSec: nextRem,
+                            });
+                        }
+                    };
                     return (
                         <>
                             <Group label="Intervals">
-                                <NumberInput value={element.workMin ?? 25} onChange={v => set('workMin', Math.max(1, v))} min={1} max={180} style={{ width: 52 }} />
+                                <NumberInput value={element.workMin ?? 25} onChange={v => updateInterval(Math.max(1, v), breakMin)} min={1} max={180} style={{ width: 52 }} />
                                 <span style={UNIT}>focus</span>
-                                <NumberInput value={element.breakMin ?? 5} onChange={v => set('breakMin', Math.max(1, v))} min={1} max={60} style={{ width: 52 }} />
+                                <NumberInput value={element.breakMin ?? 5} onChange={v => updateInterval(workMin, Math.max(1, v))} min={1} max={60} style={{ width: 52 }} />
                                 <span style={UNIT}>break</span>
                             </Group>
                             <Group label="Live">
@@ -1157,9 +1182,14 @@ const ElementEditor = ({
                             )}
                         </div>
                         {element.matchId && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <span style={{ fontSize: 9, color: '#4ade80', fontFamily: 'monospace' }}>● Live-linked · auto-updates</span>
-                                <ToggleBtn active={false} onClick={() => applyElementChange?.({ matchId: null })} title="Unlink and edit by hand">Detach</ToggleBtn>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <span style={{ fontSize: 9, color: '#4ade80', fontFamily: 'monospace' }}>● Live-linked · auto-updates</span>
+                                    <ToggleBtn active={false} onClick={() => applyElementChange?.({ matchId: null })} title="Unlink and edit by hand">Detach</ToggleBtn>
+                                </div>
+                                <span style={{ fontSize: 9, color: C.faint, lineHeight: 1.35 }}>
+                                    Teams, scores, status & clock below are overridden by the live feed while linked. Detach to apply manual edits.
+                                </span>
                             </div>
                         )}
                         {/* Match + team info for the linked match (free feed fields) */}
@@ -1416,6 +1446,11 @@ const ElementEditor = ({
                                     <ToggleBtn active={element.sound !== false} onClick={() => set('sound', element.sound === false)} title="Play a chime in OBS">chime</ToggleBtn>
                                     <ToggleBtn active={element.showMessage !== false} onClick={() => set('showMessage', element.showMessage === false)} title="Show the viewer's message">message</ToggleBtn>
                                 </Group>
+                                {element.sound !== false && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 110 }}>
+                                        <Slider label="Chime vol" value={element.volume ?? 0.5} onChange={v => set('volume', v)} />
+                                    </div>
+                                )}
                             </>
                         )}
                         {type === 'eventlist' && (
@@ -1484,15 +1519,13 @@ const ElementEditor = ({
                         <SelectInput value={element.fx ?? 'plain'} onChange={v => set('fx', v)} options={withThemeOption(TEXT_FX, '@fx')} />
                     </Group>
                 )}
-                {(type === 'text' || type === 'countdown') && (
-                    <Group label="Font">
-                        <SelectInput
-                            value={element.fontFamily ?? ''}
-                            onChange={v => set('fontFamily', v || undefined)}
-                            options={[{ value: '', label: 'Theme body' }, { value: '@display', label: 'Theme headline' }]}
-                        />
-                    </Group>
-                )}
+                <Group label="Font">
+                    <SelectInput
+                        value={element.fontFamily ?? ''}
+                        onChange={v => set('fontFamily', v || undefined)}
+                        options={[{ value: '', label: 'Theme body' }, { value: '@display', label: 'Theme headline' }]}
+                    />
+                </Group>
                 {type === 'lowerthird' && (
                     <Group label="Plate">
                         <SelectInput value={element.variant ?? 'panel'} onChange={v => set('variant', v)} options={withThemeOption(LOWER_THIRDS, '@lt')} />

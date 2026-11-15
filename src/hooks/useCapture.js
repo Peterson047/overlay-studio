@@ -24,7 +24,9 @@ const useCapture = () => {
     const [errors, setErrors] = useState({ faceCam: null, handCam: null, roomCam: null });
 
     const streamsRef   = useRef(streams);
-    streamsRef.current = streams;
+    useEffect(() => {
+        streamsRef.current = streams;
+    }, [streams]);
 
     // ── Device enumeration ────────────────────────────────────────────────────
     const enumerateDevices = useCallback(async () => {
@@ -67,12 +69,12 @@ const useCapture = () => {
     const setStream = (key, stream) => setStreams(s => ({ ...s, [key]: stream }));
     const setError  = (key, msg)    => setErrors(e  => ({ ...e, [key]: msg   }));
 
-    const stopStream = (key) => {
+    const stopStream = useCallback((key) => {
         const s = streamsRef.current[key];
         if (s) s.getTracks().forEach(t => t.stop());
-        setStream(key, null);
-        setError(key, null);
-    };
+        setStreams(prev => ({ ...prev, [key]: null }));
+        setErrors(prev => ({ ...prev, [key]: null }));
+    }, []);
 
     // ── Camera streams ────────────────────────────────────────────────────────
     const startCameraStream = useCallback(async (slot, deviceId) => {
@@ -89,14 +91,14 @@ const useCapture = () => {
         } catch (e) {
             setError(slot, e.name === 'NotAllowedError' ? 'Permission denied' : e.message);
         }
-    }, [enumerateDevices]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [enumerateDevices]);
 
-    const stopCameraStream = useCallback((slot) => stopStream(slot), []); // eslint-disable-line
+    const stopCameraStream = useCallback((slot) => stopStream(slot), [stopStream]);
 
     const setSelectedDevice = useCallback((slot, deviceId) => {
         setSelectedDevices(s => {
             const next = { ...s, [slot]: deviceId };
-            try { localStorage.setItem('overlay_selected_devices', JSON.stringify(next)); } catch {}
+            try { localStorage.setItem('overlay_selected_devices', JSON.stringify(next)); } catch { /* ignore storage errors */ }
             return next;
         });
     }, []);

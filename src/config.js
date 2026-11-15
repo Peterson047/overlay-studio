@@ -1,3 +1,5 @@
+import { PORTS } from '../ports.config.js';
+
 /**
  * Backend connection URLs — derived from the centralized port config.
  * 
@@ -5,7 +7,7 @@
  * Change the port in /ports.config.js and it propagates here automatically.
  */
 
-const BACKEND_PORT = 3388;
+const BACKEND_PORT = PORTS.BACKEND;
 
 // Local sidecar — used only for inherently-local features (local LLM chat,
 // OBS WebSocket control). The layout itself no longer depends on this.
@@ -34,7 +36,8 @@ export const LAYOUT_API = import.meta.env.VITE_LAYOUT_API ?? '/api';
 // default, then 'default'.
 export function getRoom() {
     const fromUrl = new URLSearchParams(window.location.search).get('room');
-    return (fromUrl || import.meta.env.VITE_ROOM || 'default').trim();
+    const trimmed = (fromUrl ?? '').trim();
+    return trimmed || (import.meta.env.VITE_ROOM || 'default').trim() || 'default';
 }
 
 export function layoutUrl() {
@@ -62,10 +65,18 @@ export function isDefaultRoom() {
 // Meeting-style, hard-to-guess, easy-to-say id, e.g. "swift-otter-4821".
 const ROOM_ADJECTIVES = ['swift', 'calm', 'bold', 'bright', 'keen', 'brave', 'lucky', 'clever', 'mellow', 'noble', 'quiet', 'rapid', 'sunny', 'vivid', 'witty', 'cosmic'];
 const ROOM_NOUNS = ['otter', 'falcon', 'panda', 'tiger', 'heron', 'lynx', 'comet', 'maple', 'river', 'ember', 'pixel', 'cobra', 'raven', 'koala', 'badger', 'nebula'];
-const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const cryptoRandInt = (maxExclusive) => {
+    if (typeof globalThis.crypto?.getRandomValues === 'function') {
+        const buf = new Uint32Array(1);
+        globalThis.crypto.getRandomValues(buf);
+        return buf[0] % maxExclusive;
+    }
+    return Math.floor(Math.random() * maxExclusive);
+};
+const pick = (arr) => arr[cryptoRandInt(arr.length)];
 
 export function newRoomId() {
-    return `${pick(ROOM_ADJECTIVES)}-${pick(ROOM_NOUNS)}-${Math.floor(1000 + Math.random() * 9000)}`;
+    return `${pick(ROOM_ADJECTIVES)}-${pick(ROOM_NOUNS)}-${1000 + cryptoRandInt(9000)}`;
 }
 
 // Write a room id into the current URL without reloading, preserving other

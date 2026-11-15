@@ -10,7 +10,7 @@ const VideoFeed = ({ stream, label, muted = true, fit = 'cover' }) => {
         // React never writes muted={true} as a DOM attribute (known React bug).
         // Set it via property first so Chrome's autoplay policy allows streams
         // that include an audio track (e.g. display captures with audio:true).
-        el.muted = true;
+        el.muted = Boolean(muted);
 
         if (attachedStreamRef.current === stream && el.srcObject === stream) {
             if (stream && el.paused) {
@@ -32,7 +32,7 @@ const VideoFeed = ({ stream, label, muted = true, fit = 'cover' }) => {
                 console.warn('[VideoFeed] play() failed:', err.name, err.message);
             });
         }
-    }, [stream]);
+    }, [stream, muted]);
 
     // Resume if the browser paused the video when the tab went to the background.
     useEffect(() => {

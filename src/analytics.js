@@ -17,7 +17,7 @@ const GA_ID = import.meta.env.VITE_GA_ID;
 // creator, or someone they shared it with), so that counts.
 function isOverlayLoad() {
     const q = new URLSearchParams(window.location.search);
-    return q.has('obs');
+    return q.has('obs') || q.has('clean');
 }
 
 export function initAnalytics() {

@@ -142,6 +142,7 @@ const Snake = ({ mood, walking }) => {
     );
 };
 
+/* eslint-disable react-refresh/only-export-components */
 // ── Species roster ─────────────────────────────────────────────────────────
 export const PETS = [
     {

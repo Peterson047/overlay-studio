@@ -1,57 +1,70 @@
-# Deploying the overlay (Vercel, no local server)
+# Publicar o qorpStreamer na Vercel
 
-The overlay design used to require the local Node backend (`backend/server.js`)
-to be running — if it wasn't, OBS loaded the **default** layout. The design now
-lives in a serverless function (`api/layout.js`) backed by a small KV store, so
-OBS loads it from an always-on URL with nothing running on your machine.
+O frontend usa Vite. As rotas `/api/layout`, `/api/scores` e `/api/usage` são
+Vercel Functions. Layouts, cenas e estado ao vivo ficam no Upstash Redis.
 
-> The local `backend/` is still used for the **local LLM chat** and **OBS
-> WebSocket control** only. Those are inherently local and unaffected.
+## Configurar o projeto
 
-## One-time setup
+1. Importe o repositório na Vercel e selecione o preset **Vite** e Node.js **22.x**.
+2. Use `npm run build` como comando de build e `dist` como diretório de saída.
+   O arquivo `vercel.json` já declara esses valores.
+3. Crie um banco Upstash Redis e configure as variáveis abaixo na Vercel.
+4. Configure as variáveis para o ambiente desejado e faça um novo deployment
+   após alterá-las. Use bancos separados para Preview e Production.
 
-1. **Push the repo to GitHub** and import it into Vercel
-   (vercel.com → Add New → Project). Vercel auto-detects Vite + the `api/` folder.
+| Variável | Uso |
+| --- | --- |
+| `UPSTASH_REDIS_REST_URL` | URL REST do banco |
+| `UPSTASH_REDIS_REST_TOKEN` | Token com permissão de leitura e escrita |
+| `SITE_URL` | Opcional — URL pública com `https://` para sitemap/canonical (sobrescreve o domínio automático `VERCEL_PROJECT_PRODUCTION_URL`) |
+| `FOOTBALL_DATA_TOKEN` | Opcional, habilita placares reais |
+| `FOOTBALL_DATA_COMPETITION` | Opcional, código da competição, padrão `WC` |
 
-2. **Add a Redis KV store** for layout storage:
-   - In the Vercel project → **Storage** → create an **Upstash Redis** database
-     (free tier is fine), or create one at upstash.com.
-   - Connect it to the project. Vercel injects the credentials as env vars.
-     `api/layout.js` accepts either naming:
-     - `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`, or
-     - `KV_REST_API_URL` / `KV_REST_API_TOKEN`
+A API também aceita `KV_REST_API_URL` e `KV_REST_API_TOKEN`.
+As credenciais do Redis devem ficar nas variáveis do servidor.
+Variáveis com prefixo `VITE_` são incluídas no código público do frontend.
 
-3. **Deploy.** You'll get a URL like `https://stream-overlay.vercel.app`.
+A configuração normal usa frontend e API no mesmo domínio. Para uma API
+hospedada separadamente, defina `VITE_LAYOUT_API=https://seu-dominio/api`.
 
-## Using it
+## Conferir o deployment
 
-- **OBS Browser Source URL:** `https://<your-app>.vercel.app/?room=<your-room>`
-- **Editor:** open the same URL in your browser, switch to edit mode, design.
-  Every change POSTs to `/api/layout`; OBS polls `GET /api/layout` every ~2s and
-  picks it up.
+1. Abra a homepage, entre no estúdio e aplique um template.
+2. Clique em **Go Live** para criar a sala e copiar o link OBS.
+3. Edite um texto e recarregue o editor. Confira se a alteração foi salva.
+4. Abra o link OBS em outra janela e troque a cena no editor.
+5. Adicione o link como fonte de navegador no OBS, com 1920 × 1080.
 
-The `?room=` value is a private slot id. The editor and OBS **must use the same
-room** to share a design. Pick something hard to guess (e.g. `?room=minha-live-x9f2`)
-since the endpoint is public — anyone with the exact room URL can read/overwrite
-that slot. No `?room=` ⇒ the shared `default` slot.
+O editor usa `/?room=<sala>`. A fonte OBS usa `/?obs&room=<sala>`.
+O parâmetro `obs` ativa a saída de transmissão.
 
-> **Cameras / screen feeds** still can't render inside an OBS *browser* source —
-> they're captured in your editing tab's context. Add those as native OBS
-> sources (Video Capture / Display Capture); the browser overlay carries your
-> graphics (text, clock, logo, tasks, social, background).
+Uma resposta 500 em `/api/layout` ou `/api/usage` pode indicar credenciais
+ausentes ou inválidas. Consulte os logs da Function na Vercel.
+Sem token de futebol, `/api/scores` fornece dados demonstrativos.
 
-## Local development
+## Desenvolvimento e validação
 
-Plain `vite` does **not** run the Vercel `/api` functions, so without help every
-save would 404 and state would be lost on reload. Pick one:
+Use Node.js 22.12 ou superior dentro da série 22.
 
-- **`npm run dev` (default, offline)** — `vite.config.js` includes a dev-only
-  middleware that emulates `/api/layout`, persisting to a local `.dev-layouts.json`
-  (per `room`, gitignored). No Upstash/Vercel needed. State survives reloads.
-  Use a consistent `?room=` across reloads (no param ⇒ the `default` room).
-  This local store is separate from production KV.
-- **`vercel dev`** — runs the real `api/` functions against the real KV
-  (production-accurate; needs the env vars above via `vercel env pull`).
-- **`vite` against the deployed API** — create `.env.local` with
-  `VITE_LAYOUT_API=https://<your-app>.vercel.app/api` to read/write cloud KV
-  from a local frontend.
+```sh
+npm ci
+npm run dev
+npm run check
+```
+
+O servidor Vite grava os dados locais em `.dev-layouts.json` e
+`.dev-usage.json`. Para testar as Functions no runtime da Vercel, use
+`vercel dev` com as variáveis de um banco de desenvolvimento.
+
+O backend em `backend/` atende recursos locais, como modelos de IA e controle
+do OBS. A publicação na Vercel serve o editor, os overlays e as APIs de dados.
+Câmeras e captura de tela devem ser adicionadas como fontes nativas no OBS.
+
+## Modelo atual de acesso
+
+A sala é identificada por um endereço compartilhável. Quem tem seu identificador
+consegue consultar e modificar seus dados pela API. O produto ainda precisa de
+contas, autorização por proprietário e controle de acesso para uma operação
+comercial com projetos privados.
+
+Referências oficiais — [Vite na Vercel](https://vercel.com/docs/frameworks/frontend/vite) e [Functions Node.js](https://vercel.com/docs/functions/runtimes/node-js).

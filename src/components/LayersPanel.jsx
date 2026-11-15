@@ -26,6 +26,7 @@ const Divider = () => (
 
 const IconBtn = ({ onClick, title, danger, children }) => (
     <button
+        type="button"
         onClick={onClick}
         title={title}
         style={{
@@ -285,6 +286,7 @@ const ScenesDropdown = ({
                             })}
                             {onSaveScene && !saving && (
                                 <button
+                                    type="button"
                                     onClick={() => { setSaving(true); setRenamingId(null); }}
                                     style={{
                                         marginTop: 2, padding: '5px 7px', borderRadius: 6, cursor: 'pointer',

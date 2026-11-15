@@ -1,8 +1,24 @@
 // Shared pure layout versioning, patch merging, and live-state helpers used by
 // both `api/layout.js` (Upstash Redis) and `vite.config.js` (local dev server).
 
-export const roomOf = (room) =>
-    String(room || 'default').slice(0, 64).replace(/[^\w.-]/g, '_');
+const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const RESERVED_ROOMS = new Set(['__ver', '__live', '__lib', '_all']);
+const isSafeKey = (k) => typeof k === 'string' && k.length > 0 && !FORBIDDEN_KEYS.has(k);
+const isPlainObject = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
+const pickSafeObj = (obj) => {
+    if (!isPlainObject(obj)) return {};
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) {
+        if (isSafeKey(k)) out[k] = v;
+    }
+    return out;
+};
+
+export const roomOf = (room) => {
+    const cleaned = String(room || '').trim().slice(0, 64).replace(/[^\w.-]/g, '_');
+    if (!cleaned || FORBIDDEN_KEYS.has(cleaned) || RESERVED_ROOMS.has(cleaned)) return 'default';
+    return cleaned;
+};
 
 export const keysFor = (room) => {
     const r = roomOf(room);
@@ -31,27 +47,29 @@ export const splitVer = (ver) => {
 export const formatVer = (d, l) => `${d || newTag('d')}.${l || newTag('l')}`;
 
 function mergeTimers(prevTimers, patchTimers, nowMs) {
-    const timers = { ...(prevTimers || {}) };
+    const timers = pickSafeObj(prevTimers);
     for (const [id, val] of Object.entries(patchTimers)) {
+        if (!isSafeKey(id)) continue;
         if (val === null) {
             delete timers[id];
             continue;
         }
-        if (!val || typeof val !== 'object') continue;
-        const prev = timers[id] && typeof timers[id] === 'object' ? timers[id] : {};
-        const merged = { ...prev, ...val };
+        if (!isPlainObject(val)) continue;
+        const prev = isPlainObject(timers[id]) ? timers[id] : {};
+        const safeVal = pickSafeObj(val);
+        const merged = { ...prev, ...safeVal };
         // If transitioning running -> paused without an explicit remainingSec,
         // settle elapsed wall-clock time on the server clock.
         if (
-            val.state === 'paused' &&
+            safeVal.state === 'paused' &&
             prev.state === 'running' &&
-            val.remainingSec === undefined &&
+            safeVal.remainingSec === undefined &&
             typeof prev.remainingSec === 'number' &&
             typeof prev.anchorAt === 'number'
         ) {
-            merged.remainingSec = Math.max(0, Math.round(prev.remainingSec - (nowMs - prev.anchorAt) / 1000));
+            merged.remainingSec = Math.max(0, Math.ceil(prev.remainingSec - (nowMs - prev.anchorAt) / 1000));
         }
-        if (val.state === 'running' && typeof val.anchorAt !== 'number') {
+        if (safeVal.state === 'running' && typeof safeVal.anchorAt !== 'number') {
             merged.anchorAt = nowMs;
         }
         merged.updatedAt = nowMs;
@@ -61,17 +79,18 @@ function mergeTimers(prevTimers, patchTimers, nowMs) {
 }
 
 function mergeTriggers(prevTriggers, patchTriggers, nowMs) {
-    const triggers = { ...(prevTriggers || {}) };
+    const triggers = pickSafeObj(prevTriggers);
     for (const [id, val] of Object.entries(patchTriggers)) {
+        if (!isSafeKey(id)) continue;
         if (val === null) {
             delete triggers[id];
             continue;
         }
-        if (!val || typeof val !== 'object') continue;
-        const prev = triggers[id] && typeof triggers[id] === 'object' ? triggers[id] : {};
+        if (!isPlainObject(val)) continue;
+        const prev = isPlainObject(triggers[id]) ? triggers[id] : {};
         triggers[id] = {
             ...prev,
-            ...val,
+            ...pickSafeObj(val),
             seq: (prev.seq || 0) + 1,
             at: nowMs,
         };
@@ -80,15 +99,16 @@ function mergeTriggers(prevTriggers, patchTriggers, nowMs) {
 }
 
 function mergeCounters(prevCounters, patchCounters, nowMs) {
-    const counters = { ...(prevCounters || {}) };
+    const counters = pickSafeObj(prevCounters);
     for (const [id, val] of Object.entries(patchCounters)) {
+        if (!isSafeKey(id)) continue;
         if (val === null) {
             delete counters[id];
             continue;
         }
-        if (!val || typeof val !== 'object') continue;
-        const prev = counters[id] && typeof counters[id] === 'object' ? counters[id] : {};
-        counters[id] = { ...prev, ...val, updatedAt: nowMs };
+        if (!isPlainObject(val)) continue;
+        const prev = isPlainObject(counters[id]) ? counters[id] : {};
+        counters[id] = { ...prev, ...pickSafeObj(val), updatedAt: nowMs };
     }
     return counters;
 }
@@ -104,15 +124,17 @@ export function applyLayoutWrite(
         layouts: sentLayouts,
         elementPatch,
         livePatch,
-        ...patch
-    } = body || {};
+        ...rawPatch
+    } = pickSafeObj(body);
     void _clientId;
     void _v;
 
+    const patch = pickSafeObj(rawPatch);
     const layouts = isShared ? undefined : sentLayouts;
-    const rawMain = existingMain && typeof existingMain === 'object' ? existingMain : {};
+    const rawMain = isPlainObject(existingMain) ? existingMain : {};
     const hasLegacy = 'layouts' in rawMain;
-    const { layouts: legacyLayouts, ...baseMain } = rawMain;
+    const { layouts: legacyLayouts, ...baseMainRest } = rawMain;
+    const baseMain = pickSafeObj(baseMainRest);
 
     const hasPatch = Object.keys(patch).length > 0;
     let nextMain = hasPatch ? { ...baseMain, ...patch } : baseMain;
@@ -121,7 +143,7 @@ export function applyLayoutWrite(
 
     const epList = Array.isArray(elementPatch)
         ? elementPatch
-        : elementPatch && typeof elementPatch === 'object'
+        : isPlainObject(elementPatch)
             ? [elementPatch]
             : [];
 
@@ -129,10 +151,10 @@ export function applyLayoutWrite(
         const els = Array.isArray(nextMain.elements) ? [...nextMain.elements] : [];
         let patchedAny = false;
         for (const item of epList) {
-            if (!item?.id || !item?.changes || typeof item.changes !== 'object') continue;
+            if (!isPlainObject(item) || !item.id || !isPlainObject(item.changes)) continue;
             const idx = els.findIndex((el) => el?.id === item.id);
             if (idx === -1) continue;
-            els[idx] = { ...els[idx], ...item.changes };
+            els[idx] = { ...els[idx], ...pickSafeObj(item.changes) };
             patchedAny = true;
         }
         if (patchedAny) {
@@ -153,34 +175,34 @@ export function applyLayoutWrite(
         writeLib = true;
     }
 
-    let nextLive = existingLive && typeof existingLive === 'object' ? { ...existingLive } : {};
+    let nextLive = isPlainObject(existingLive) ? pickSafeObj(existingLive) : {};
     let liveChanged = false;
 
-    if (livePatch && typeof livePatch === 'object') {
+    if (isPlainObject(livePatch)) {
         if ('scene' in livePatch) {
             if (livePatch.scene === null) {
                 delete nextLive.scene;
                 liveChanged = true;
-            } else if (livePatch.scene && typeof livePatch.scene === 'object') {
-                const prevScene = nextLive.scene && typeof nextLive.scene === 'object' ? nextLive.scene : {};
+            } else if (isPlainObject(livePatch.scene)) {
+                const prevScene = isPlainObject(nextLive.scene) ? nextLive.scene : {};
                 nextLive.scene = {
                     ...prevScene,
-                    ...livePatch.scene,
+                    ...pickSafeObj(livePatch.scene),
                     seq: (prevScene.seq || 0) + 1,
                     at: nowMs,
                 };
                 liveChanged = true;
             }
         }
-        if (livePatch.timers && typeof livePatch.timers === 'object') {
+        if (isPlainObject(livePatch.timers)) {
             nextLive.timers = mergeTimers(nextLive.timers, livePatch.timers, nowMs);
             liveChanged = true;
         }
-        if (livePatch.triggers && typeof livePatch.triggers === 'object') {
+        if (isPlainObject(livePatch.triggers)) {
             nextLive.triggers = mergeTriggers(nextLive.triggers, livePatch.triggers, nowMs);
             liveChanged = true;
         }
-        if (livePatch.counters && typeof livePatch.counters === 'object') {
+        if (isPlainObject(livePatch.counters)) {
             nextLive.counters = mergeCounters(nextLive.counters, livePatch.counters, nowMs);
             liveChanged = true;
         }

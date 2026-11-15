@@ -8,6 +8,8 @@ import { bgToStyle } from './BackgroundPanel';
 import CameraFrame, { DEFAULT_CAM_STYLE } from './CameraFrame';
 import ElementRenderer from './ElementRenderer';
 
+const MotionDiv = motion.div;
+
 // Layouts gallery — each card is a LAYOUT (a "show": a named container of
 // scenes). Switching a layout makes it active and loads its active scene.
 // Thumbnails render the scene for real — the same element renderers at the
@@ -335,6 +337,26 @@ const LayoutGallery = ({ layouts = [], activeLayoutId, starters = [], onAddStart
     const [tab, setTab] = useState(layouts.length > 0 || !hasStarters ? 'mine' : 'templates');
     const [selectedId, setSelectedId] = useState({ mine: activeLayoutId ?? layouts[0]?.id, templates: starters[0]?.id });
     const [category, setCategory] = useState('all');
+    const [narrow, setNarrow] = useState(() => (
+        typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+            ? window.matchMedia('(max-width: 860px)').matches
+            : false
+    ));
+
+    useEffect(() => {
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+        const mq = window.matchMedia('(max-width: 860px)');
+        const update = (e) => setNarrow(e.matches);
+        mq.addEventListener?.('change', update);
+        return () => mq.removeEventListener?.('change', update);
+    }, []);
+
+    useEffect(() => {
+        if (!onClose) return undefined;
+        const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [onClose]);
 
     const create = () => { onCreate(newName); setNewName(''); };
 
@@ -356,16 +378,17 @@ const LayoutGallery = ({ layouts = [], activeLayoutId, starters = [], onAddStart
             style={{
                 position: 'fixed', inset: 0, zIndex: 1000,
                 background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', padding: narrow ? 10 : 24,
             }}
         >
-            <motion.div
+            <MotionDiv
                 onClick={e => e.stopPropagation()}
                 initial={{ opacity: 0, scale: 0.97, y: 8 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 transition={{ duration: 0.16 }}
+                role="dialog" aria-modal="true" aria-label="Layouts and templates"
                 style={{
-                    width: 'min(1120px, 100%)', height: 'min(760px, 90vh)', display: 'flex', flexDirection: 'column',
+                    width: 'min(1120px, 100%)', height: 'min(760px, 92vh)', display: 'flex', flexDirection: 'column',
                     background: 'rgba(12,12,22,0.98)', border: '1px solid rgba(255,255,255,0.1)',
                     borderRadius: 14, boxShadow: '0 20px 70px rgba(0,0,0,0.7)', overflow: 'hidden',
                 }}
@@ -431,9 +454,9 @@ const LayoutGallery = ({ layouts = [], activeLayoutId, starters = [], onAddStart
                     </div>
                 )}
 
-                {/* Body — list (2 columns) | preview. Wraps to a single column on narrow screens. */}
-                <div style={{ flex: 1, minHeight: 0, display: 'flex', flexWrap: 'wrap', overflowY: 'auto' }}>
-                    <div style={{ flex: '1 1 380px', minWidth: 0, maxHeight: '100%', overflowY: 'auto', padding: 14, boxSizing: 'border-box' }}>
+                {/* Body — list (2 columns) | preview. On narrow viewports, preview stays on top above the list. */}
+                <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: narrow ? 'column' : 'row', overflowY: narrow ? 'auto' : 'hidden' }}>
+                    <div style={{ flex: narrow ? 'none' : '1 1 380px', minWidth: 0, maxHeight: narrow ? 'none' : '100%', overflowY: narrow ? 'visible' : 'auto', padding: 14, boxSizing: 'border-box', order: narrow ? 2 : 0 }}>
                         {list.length === 0 ? (
                             <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.35)', fontSize: 12, fontFamily: 'monospace', lineHeight: 1.8, padding: '60px 20px' }}>
                                 No saved layouts yet.<br />
@@ -460,7 +483,7 @@ const LayoutGallery = ({ layouts = [], activeLayoutId, starters = [], onAddStart
                     </div>
 
                     {selected && (
-                        <div style={{ flex: '1 1 420px', minWidth: 0, maxHeight: '100%', overflowY: 'auto', padding: 16, boxSizing: 'border-box', borderLeft: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.015)' }}>
+                        <div style={{ flex: narrow ? 'none' : '1 1 420px', minWidth: 0, maxHeight: narrow ? 'none' : '100%', overflowY: narrow ? 'visible' : 'auto', padding: 16, boxSizing: 'border-box', borderLeft: narrow ? 'none' : '1px solid rgba(255,255,255,0.07)', borderBottom: narrow ? '1px solid rgba(255,255,255,0.07)' : 'none', background: 'rgba(255,255,255,0.015)', order: narrow ? 1 : 0 }}>
                             <DetailPanel
                                 key={`${tab}:${selected.id}`}
                                 kind={tab}
@@ -471,7 +494,7 @@ const LayoutGallery = ({ layouts = [], activeLayoutId, starters = [], onAddStart
                         </div>
                     )}
                 </div>
-            </motion.div>
+            </MotionDiv>
         </div>
     );
 };

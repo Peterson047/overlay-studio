@@ -1214,19 +1214,34 @@ export const STARTER_LAYOUTS = [
     },
 ];
 
+let starterInstanceSeq = 0;
+
 // Build a real layout container from a starter. Ids are stamped per-call so
 // adding the same starter twice never collides with an existing layout/scene.
 export const buildStarterLayout = (starter) => {
     const base = Date.now();
-    const scenes = starter.scenes.map((sc, i) => ({
-        id: `scene_${base}_${i}`,
-        name: sc.name,
-        createdAt: base + i,
-        // Bake the theme into every scene so the whole show installs cohesively.
-        snapshot: starter.themeId ? { ...sc.snapshot, theme: starter.themeId } : { ...sc.snapshot },
-    }));
+    const uid = `${base}_${++starterInstanceSeq}`;
+    const scenes = starter.scenes.map((sc, i) => {
+        const sceneId = `scene_${uid}_${i}`;
+        const elements = (sc.snapshot?.elements ?? []).map((el, j) => ({
+            ...el,
+            id: `${sceneId}_e${j}`,
+        }));
+        const snapshot = {
+            ...sc.snapshot,
+            elements,
+            ...(starter.themeId ? { theme: starter.themeId } : {}),
+        };
+        return {
+            id: sceneId,
+            name: sc.name,
+            createdAt: base + i,
+            // Bake the theme into every scene so the whole show installs cohesively.
+            snapshot,
+        };
+    });
     return {
-        id: `layout_${base}`,
+        id: `layout_${uid}`,
         name: starter.name,
         createdAt: base,
         scenes,

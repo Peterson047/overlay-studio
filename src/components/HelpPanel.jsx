@@ -1,6 +1,8 @@
 import { motion } from 'framer-motion';
 import { ChevronUp, Eye, Film, GripHorizontal, HelpCircle, Home, LayoutGrid, Pencil, Play, Plus, RotateCcw, Save, Trash2, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+
+const MotionDiv = motion.div;
 
 // In-app guide to the studio: what each dock button does, what you can do in
 // edit mode, and how to get the overlay into OBS. Opened from the "?" in the
@@ -79,7 +81,7 @@ const Edit = () => (
             Text, lower thirds, clocks, countdowns, goals, socials, pets, a spin wheel, scoreboards, shapes and more. Search at the top, click one, then <B>click or drag on the canvas</B> to place it. <B>Esc</B> cancels.
         </Row>
         <Row k={<Key>Drag · Resize</Key>} title="Arrange the canvas">
-            Drag a box by its top bar to move it, pull a corner to resize. Click a box to open its settings on the right (text, colors, timer, frame…).
+            Drag anywhere on a box to move it, pull a corner to resize. Click a box to open its settings on the right (text, colors, timer, frame…).
         </Row>
         <Row k={<><Key><Eye size={11} /></Key><Key><ChevronUp size={11} /></Key><Key><Trash2 size={11} /></Key></>} title="Layers in this scene (under the canvas)">
             Every layer, front to back. Click one to select it; hover for hide/show, bring forward or send backward, and remove.
@@ -127,17 +129,24 @@ const HelpPanel = ({ onClose, initialTab = 'dock' }) => {
     const [tab, setTab] = useState(initialTab);
     const { Body } = TABS.find(t => t.id === tab) ?? TABS[0];
 
+    useEffect(() => {
+        if (!onClose) return undefined;
+        const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [onClose]);
+
     return (
         <div
             onClick={onClose}
             style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
         >
-            <motion.div
+            <MotionDiv
                 onClick={e => e.stopPropagation()}
                 initial={{ opacity: 0, scale: 0.97, y: 8 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 transition={{ duration: 0.16 }}
-                role="dialog" aria-label="How the studio works"
+                role="dialog" aria-modal="true" aria-label="How the studio works"
                 style={{
                     width: 'min(560px, 100%)', height: 'min(640px, 88vh)', display: 'flex', flexDirection: 'column',
                     background: 'rgba(12,12,22,0.98)', border: '1px solid rgba(255,255,255,0.1)',
@@ -169,7 +178,7 @@ const HelpPanel = ({ onClose, initialTab = 'dock' }) => {
                         Got it
                     </button>
                 </div>
-            </motion.div>
+            </MotionDiv>
         </div>
     );
 };

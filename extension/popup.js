@@ -28,7 +28,7 @@ document.getElementById('sendBtn').addEventListener('click', () => {
         }, 1500);
     };
 
-    ws.onerror = (err) => {
+    ws.onerror = () => {
         statusDiv.textContent = "Error: Cannot connect to WebSocket server. Is node server.js running?";
         statusDiv.style.color = "#ef4444";
     }

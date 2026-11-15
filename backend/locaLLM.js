@@ -16,7 +16,10 @@ import http from 'http';
 import https from 'https';
 import { getLlama, LlamaChatSession } from 'node-llama-cpp';
 import { homedir } from 'os';
-import { join } from 'path';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ==========================================
 // CONFIGURATION
@@ -154,7 +157,7 @@ export function getAvailableModels() {
         if (isDownloaded) {
             try {
                 fileSize = statSync(modelPath).size;
-            } catch (e) {
+            } catch {
                 // Ignore
             }
         }
@@ -274,11 +277,22 @@ export async function downloadModel(modelName, onProgress = () => { }) {
     }
 
     console.log('[LocalLLM] Downloading model:', modelName);
+    if (!existsSync(CONFIG.MODELS_DIR)) {
+        mkdirSync(CONFIG.MODELS_DIR, { recursive: true });
+    }
 
     return new Promise((resolve, reject) => {
         const file = createWriteStream(modelPath);
         let downloadedBytes = 0;
         let totalBytes = 0;
+        let settled = false;
+        const fail = (err) => {
+            if (settled) return;
+            settled = true;
+            file.close();
+            reject(err);
+        };
+        file.on('error', fail);
 
         const handleResponse = (response) => {
             // Handle redirects
@@ -286,12 +300,12 @@ export async function downloadModel(modelName, onProgress = () => { }) {
                 const redirectUrl = response.headers.location;
                 console.log('[LocalLLM] Following redirect to:', redirectUrl);
                 const protocol = redirectUrl.startsWith('https') ? https : http;
-                protocol.get(redirectUrl, handleResponse).on('error', reject);
+                protocol.get(redirectUrl, handleResponse).on('error', fail);
                 return;
             }
 
             if (response.statusCode !== 200) {
-                reject(new Error(`Download failed: HTTP ${response.statusCode}`));
+                fail(new Error(`Download failed: HTTP ${response.statusCode}`));
                 return;
             }
 
@@ -309,17 +323,17 @@ export async function downloadModel(modelName, onProgress = () => { }) {
             response.pipe(file);
 
             file.on('finish', () => {
+                if (settled) return;
+                settled = true;
                 file.close();
                 console.log('[LocalLLM] Download complete:', modelPath);
                 onProgress(100);
+                notifyProgress('download', 100, modelName);
                 resolve(modelPath);
             });
         };
 
-        https.get(url, handleResponse).on('error', (err) => {
-            file.close();
-            reject(err);
-        });
+        https.get(url, handleResponse).on('error', fail);
     });
 }
 
@@ -368,13 +382,13 @@ export async function loadModel(modelName = CONFIG.DEFAULT_MODEL) {
 
         let userRequiresGPU = true;
         try {
-            const layoutFile = join(process.cwd(), 'backend', 'layout-settings.json');
+            const layoutFile = join(__dirname, 'layout-settings.json');
             const fileData = readFileSync(layoutFile, 'utf8');
             const parsed = JSON.parse(fileData);
             if (typeof parsed.useGPU === 'boolean') {
                 userRequiresGPU = parsed.useGPU;
             }
-        } catch (e) {
+        } catch {
             console.log('[LocalLLM] Failed to read user GPU config, defaulting to GPU Enabled');
         }
 
@@ -708,7 +722,7 @@ Return ONLY valid JSON, no explanation:`;
             return JSON.parse(jsonMatch[0]);
         }
         throw new Error('No valid JSON in response');
-    } catch (e) {
+    } catch {
         console.warn('[LocalLLM] Failed to parse command response:', response);
         return { action: 'unknown', raw: command };
     }

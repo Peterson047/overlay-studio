@@ -2,7 +2,20 @@
 # Not part of the Vercel deploy — Vercel only needs the Vite app + api/ functions.
 backend/
 
-# Chrome extension, local launcher, and docs aren't deployed either.
+# Chrome extension, local launcher, promos and docs aren't deployed either.
 extension/
+promo-videos/
+image*.png
 start_overlay.bat
+README.md
+DEPLOY.md
 REACT_HOOKS.md
+
+# Local state, credentials and agent configuration.
+.dev-*.json
+.env*
+*.local
+.agents/
+.codex/
+.claude/
+.aws/

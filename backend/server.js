@@ -51,7 +51,7 @@ async function ensureLLMModule() {
 // on server startup; slow laptops should stay responsive until the user clicks
 // Download/Load in the Local AI settings.
 
-const layoutSettingsFile = './layout-settings.json';
+const layoutSettingsFile = join(__dirname, 'layout-settings.json');
 let layoutSettings = {
     showFaceCam: true,
     showHandCam: true,
@@ -75,9 +75,15 @@ function saveLayoutSettings() {
     }
 }
 
+const MAX_BODY_BYTES = 1_000_000;
+
 const server = http.createServer(async (req, res) => {
-    // Basic CORS
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    const pathname = new URL(req.url || '/', 'http://127.0.0.1').pathname;
+    // Local sidecar: restrict CORS to loopback origins when an Origin header is present.
+    const origin = req.headers.origin;
+    if (!origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin || 'http://127.0.0.1');
+    }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
@@ -87,13 +93,13 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
-    if (req.method === 'GET' && req.url === '/health') {
+    if (req.method === 'GET' && pathname === '/health') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ status: 'ok' }));
         return;
     }
 
-    if (req.method === 'GET' && req.url === '/llm/status') {
+    if (req.method === 'GET' && pathname === '/llm/status') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(getStatus ? getStatus() : {
             initialized: false,
@@ -106,14 +112,14 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
-    if (req.method === 'GET' && req.url === '/llm/models') {
+    if (req.method === 'GET' && pathname === '/llm/models') {
         await ensureLLMModule();
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(getAvailableModels ? getAvailableModels() : {}));
         return;
     }
 
-    if (req.method === 'GET' && req.url === '/layout') {
+    if (req.method === 'GET' && pathname === '/layout') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(layoutSettings));
         return;
@@ -121,57 +127,87 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST') {
         let body = '';
-        req.on('data', chunk => { body += chunk.toString(); });
+        let tooLarge = false;
+        req.on('data', chunk => {
+            if (tooLarge) return;
+            body += chunk.toString();
+            if (body.length > MAX_BODY_BYTES) tooLarge = true;
+        });
         req.on('end', async () => {
+            if (tooLarge) {
+                res.writeHead(413, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'Payload too large' }));
+                return;
+            }
             let data = {};
-            try { data = JSON.parse(body); } catch (e) { }
+            try { data = JSON.parse(body || '{}'); } catch {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'Invalid JSON body' }));
+                return;
+            }
+            if (!data || typeof data !== 'object' || Array.isArray(data)) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'Invalid body' }));
+                return;
+            }
 
-            if (req.url === '/llm/download') {
+            if (pathname === '/llm/download') {
                 try {
                     await ensureLLMModule();
                     if (downloadModel) {
-                        downloadModel(data.modelName).catch(e => console.error(e));
+                        downloadModel(data.modelName).catch(e => {
+                            console.error(e);
+                            broadcast(JSON.stringify({ type: 'llm-progress', payload: { type: 'download', progress: 0, modelName: data.modelName, error: 'Download failed' } }));
+                        });
                     }
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ ok: true }));
                 } catch (e) {
+                    console.error('[backend /llm/download]', e);
                     res.writeHead(500, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ ok: false, error: e.message }));
+                    res.end(JSON.stringify({ ok: false, error: 'Failed to start download' }));
                 }
                 return;
             }
 
-            if (req.url === '/llm/load') {
+            if (pathname === '/llm/load') {
                 try {
                     await ensureLLMModule();
                     if (loadModel) await loadModel(data.modelName);
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ ok: true }));
                 } catch (e) {
+                    console.error('[backend /llm/load]', e);
                     res.writeHead(500, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ ok: false, error: e.message }));
+                    res.end(JSON.stringify({ ok: false, error: 'Failed to load model' }));
                 }
                 return;
             }
 
-            if (req.url === '/llm/unload') {
+            if (pathname === '/llm/unload') {
                 try {
                     await ensureLLMModule();
                     if (unloadModel) await unloadModel();
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ ok: true }));
                 } catch (e) {
+                    console.error('[backend /llm/unload]', e);
                     res.writeHead(500, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ ok: false, error: e.message }));
+                    res.end(JSON.stringify({ ok: false, error: 'Failed to unload model' }));
                 }
                 return;
             }
 
-            if (req.url === '/layout') {
+            if (pathname === '/layout') {
                 try {
-                    // Strip internal routing field before persisting
-                    const { _clientId, ...updateData } = data;
-                    layoutSettings = { ...layoutSettings, ...updateData };
+                    // Strip internal routing field and prototype-polluting keys before persisting
+                    const safeUpdate = {};
+                    for (const [k, v] of Object.entries(data)) {
+                        if (k === '_clientId' || k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
+                        safeUpdate[k] = v;
+                    }
+                    const { _clientId } = data;
+                    layoutSettings = { ...layoutSettings, ...safeUpdate };
                     saveLayoutSettings();
                     // Let all connected OBS overlays see the change instantly.
                     // Include _clientId so the sender can skip its own echo.
@@ -179,8 +215,9 @@ const server = http.createServer(async (req, res) => {
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ ok: true }));
                 } catch (e) {
+                    console.error('[backend /layout]', e);
                     res.writeHead(500, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ ok: false, error: e.message }));
+                    res.end(JSON.stringify({ ok: false, error: 'Failed to save layout' }));
                 }
                 return;
             }
@@ -197,7 +234,10 @@ const server = http.createServer(async (req, res) => {
     }
 });
 
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({
+    server,
+    verifyClient: ({ origin }) => !origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin),
+});
 
 wss.on('connection', function connection(ws) {
     console.log('New client connected to OBS Overlay!');
@@ -208,7 +248,7 @@ wss.on('connection', function connection(ws) {
         let parsedData;
         try {
             parsedData = JSON.parse(data);
-        } catch (e) {
+        } catch {
             parsedData = { type: 'text', payload: data.toString() };
         }
 

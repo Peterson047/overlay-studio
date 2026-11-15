@@ -122,28 +122,11 @@ const LayerStrip = ({
 
             {total === 0 ? (
                 <div style={{ padding: '18px 12px', borderRadius: 10, border: '1px dashed rgba(255,255,255,0.1)', textAlign: 'center', fontSize: 11.5, color: 'rgba(255,255,255,0.4)' }}>
-                    No layers yet. Pick something from the toolbox on the left, then click or drag on the canvas.
+                    No layers yet. Pick something from the toolbox{narrow ? ' above' : ' on the left'}, then click or drag on the canvas.
                 </div>
             ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${narrow ? 150 : 190}px, 1fr))`, gap: 6 }}>
-                    {builtins.map(l => (
-                        <LayerCard
-                            key={l.id}
-                            icon={<l.Icon size={16} color={l.color} />}
-                            label={l.label}
-                            kind={l.id.endsWith('Cam') ? 'Camera' : 'Component'}
-                            color={l.color}
-                            visible
-                            selected={selectedBox === l.id}
-                            touch={isTouch}
-                            narrow={narrow}
-                            onSelect={() => onSelectBox(l.id)}
-                            onUp={() => onLayerUp?.(l.id)}
-                            onDown={() => onLayerDown?.(l.id)}
-                            onRemove={() => onRemoveBuiltin(l.id)}
-                        />
-                    ))}
-                    {elements.map(el => {
+                    {[...elements].reverse().map(el => {
                         const t = ELEMENT_TYPE_MAP[el.type];
                         const kind = t?.label ?? el.type;
                         return (
@@ -165,6 +148,23 @@ const LayerStrip = ({
                             />
                         );
                     })}
+                    {builtins.map(l => (
+                        <LayerCard
+                            key={l.id}
+                            icon={<l.Icon size={16} color={l.color} />}
+                            label={l.label}
+                            kind={l.id.endsWith('Cam') ? 'Camera' : 'Component'}
+                            color={l.color}
+                            visible
+                            selected={selectedBox === l.id}
+                            touch={isTouch}
+                            narrow={narrow}
+                            onSelect={() => onSelectBox(l.id)}
+                            onUp={() => onLayerUp?.(l.id)}
+                            onDown={() => onLayerDown?.(l.id)}
+                            onRemove={() => onRemoveBuiltin(l.id)}
+                        />
+                    ))}
                 </div>
             )}
         </div>

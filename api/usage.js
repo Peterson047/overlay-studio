@@ -5,18 +5,25 @@ import { Redis } from '@upstash/redis';
 //   POST { room, uid }  → bump today's load + unique-visitor counters for the room
 //   GET  ?days=14[&room=x] → daily { loads, uniques } per room (+ "_all" site total)
 // Unique visitors use Redis HyperLogLog (PFADD/PFCOUNT): ~exact, tiny, no PII.
-const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 const TTL = 100 * 24 * 60 * 60; // keep ~100 days of daily counters, then auto-expire
+const MAX_POST_BYTES = 16_384;
 
-let _redis;
+let _redisCache = null;
 function getRedis() {
-    if (!REDIS_URL || !REDIS_TOKEN) throw new Error('KV not configured');
-    if (!_redis) _redis = new Redis({ url: REDIS_URL, token: REDIS_TOKEN });
-    return _redis;
+    const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+    const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+    if (!url || !token) throw new Error('KV not configured');
+    if (!_redisCache || _redisCache.url !== url || _redisCache.token !== token) {
+        _redisCache = { url, token, client: new Redis({ url, token }) };
+    }
+    return _redisCache.client;
 }
 
-const cleanRoom = (r) => String(r || 'default').slice(0, 64).replace(/[^\w.-]/g, '_');
+const FORBIDDEN_ROOMS = new Set(['__proto__', 'constructor', 'prototype', '_all']);
+const cleanRoom = (r) => {
+    const cleaned = String(r || '').trim().slice(0, 64).replace(/[^\w.-]/g, '_');
+    return !cleaned || FORBIDDEN_ROOMS.has(cleaned) ? 'default' : cleaned;
+};
 const dayUTC = (d = new Date()) => d.toISOString().slice(0, 10);
 const lastNDays = (n) => {
     const out = [];
@@ -29,6 +36,7 @@ const lastNDays = (n) => {
 };
 
 export default async function handler(req, res) {
+    res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -38,7 +46,25 @@ export default async function handler(req, res) {
         const redis = getRedis();
 
         if (req.method === 'POST') {
-            const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
+            if (typeof req.body === 'string' && Buffer.byteLength(req.body, 'utf8') > MAX_POST_BYTES) {
+                res.status(413).json({ error: 'Payload too large' });
+                return;
+            }
+            let body;
+            try {
+                body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
+            } catch {
+                res.status(400).json({ error: 'Invalid JSON body' });
+                return;
+            }
+            if (!body || typeof body !== 'object' || Array.isArray(body)) {
+                res.status(400).json({ error: 'Invalid request body' });
+                return;
+            }
+            if (typeof req.body !== 'string' && Buffer.byteLength(JSON.stringify(body), 'utf8') > MAX_POST_BYTES) {
+                res.status(413).json({ error: 'Payload too large' });
+                return;
+            }
             const room = cleanRoom(body.room);
             const day = dayUTC();
             const p = redis.pipeline();
@@ -78,10 +104,13 @@ export default async function handler(req, res) {
                 return;
             }
 
-            // Room ids are meant to be hard to guess, so don't expose the stats
-            // (and the room list) to anyone. If USAGE_KEY is set, require it as
-            // ?key=…; if it's unset, the endpoint stays open (simple default).
-            if (process.env.USAGE_KEY && req.query.key !== process.env.USAGE_KEY) {
+            // Room ids are meant to be hard to guess, so never expose the full room list
+            // or per-room stats unless USAGE_KEY is configured and matched via ?key=.
+            if (!process.env.USAGE_KEY) {
+                res.status(403).json({ error: 'Room stats endpoint requires USAGE_KEY configuration' });
+                return;
+            }
+            if (req.query.key !== process.env.USAGE_KEY) {
                 res.status(401).json({ error: 'unauthorized — pass ?key=' });
                 return;
             }
@@ -89,7 +118,7 @@ export default async function handler(req, res) {
             const dates = lastNDays(days);
             const roomSet = await redis.smembers('u:rooms');
             const only = req.query.room ? cleanRoom(req.query.room) : null;
-            const targets = ['_all', ...(only ? [only] : roomSet.filter(r => r !== '_all'))];
+            const targets = ['_all', ...(only ? [only] : roomSet.filter(r => r && r !== '_all' && !FORBIDDEN_ROOMS.has(r)))];
 
             const p = redis.pipeline();
             for (const room of targets) for (const d of dates) {
@@ -117,6 +146,7 @@ export default async function handler(req, res) {
 
         res.status(405).json({ error: 'Method not allowed' });
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        console.error('[api/usage]', e);
+        res.status(500).json({ error: 'Internal server error' });
     }
 }

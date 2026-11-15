@@ -140,8 +140,11 @@ export const toAlert = (ev) => {
     const base = { id: ev.id, user: ev.user, message: ev.text || '', emotes: ev.emotes ?? [], ts: ev.ts ?? Date.now() };
     if (ev.kind === 'message') {
         if (!ev.bits) return null;
-        // Strip the "Cheer100" tokens so the alert shows the human message.
-        const message = ev.text.replace(/\b[a-z]+\d+\b/gi, '').replace(/\s+/g, ' ').trim();
+        // Strip standard cheermote tokens (e.g. "Cheer100") without stripping normal game terms like "cs2" or "ps5".
+        const message = ev.text
+            .replace(/\b(?:cheer|kappa|pogchamp|kreygasm|biblethump|frankerz|muxy|bitboss|corgo|hype|love|uni|rip|vohiyo|party|4head|trihard|heyguys|seemgood|dansgame|elegiggle|notlikethis|swiftrage|wutface|pride|holidaycheer|showlove)\d+\b/gi, '')
+            .replace(/\s+/g, ' ')
+            .trim();
         return { ...base, type: 'cheer', amount: ev.bits, detail: `${ev.bits} bits`, message, emotes: [] };
     }
     if (ev.kind !== 'event') return null;

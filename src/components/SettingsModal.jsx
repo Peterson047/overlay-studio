@@ -3,6 +3,8 @@ import { Cloud, Cpu, Download, Loader2, Rocket, Settings, Trash2, X } from 'luci
 import { useEffect, useState } from 'react';
 import { BACKEND_HTTP, BACKEND_WS, hasLocalSidecar } from '../config.js';
 
+const MotionDiv = motion.div;
+
 const SIDECAR_URL = BACKEND_HTTP;
 
 async function sidecarGet(path) {
@@ -28,13 +30,13 @@ const SettingsModal = ({
     const [activeTab, setActiveTab] = useState('layout');
 
     return (
-        <motion.div
+        <MotionDiv
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
         >
-            <motion.div
+            <MotionDiv
                 initial={{ scale: 0.95, opacity: 0, y: 10 }}
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 exit={{ scale: 0.95, opacity: 0, y: 10 }}
@@ -86,8 +88,8 @@ const SettingsModal = ({
                         )}
                     </div>
                 </div>
-            </motion.div>
-        </motion.div>
+            </MotionDiv>
+        </MotionDiv>
     );
 };
 
@@ -191,14 +193,14 @@ function LocalAITab() {
                                 setError(data.payload?.error || 'Unknown error');
                                 setLoadingModel(null);
                             }
-                        } catch (e) {
+                        } catch {
                             // Ignore
                         }
                     };
                 } else if (mounted) {
                     setSidecarAvailable(false);
                 }
-            } catch (e) {
+            } catch {
                 if (mounted) {
                     setSidecarAvailable(false);
                 }
@@ -409,7 +411,7 @@ function LocalAITab() {
     );
 }
 
-function ModelCard({ filename, model, isLoaded, isLoading, downloadProgress, onDownload, onLoad }) {
+function ModelCard({ filename: _filename, model, isLoaded, isLoading, downloadProgress, onDownload, onLoad }) {
     const isDownloading = downloadProgress !== undefined;
 
     const getQualityColor = (quality) => {

@@ -3,9 +3,13 @@ import { Bot, Image as ImageIcon, Link as LinkIcon, User } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { BACKEND_WS, hasLocalSidecar } from '../config.js';
 
+const MotionDiv = motion.div;
+const isSafeImgSrc = (v) => typeof v === 'string' && /^(https?:\/\/|data:image\/(?:png|jpeg|jpg|webp|gif);base64,)/i.test(v.trim());
+
 const AICompanion = () => {
     const [messages, setMessages] = useState([]);
     const [isTyping, setIsTyping] = useState(false);
+    const [wsConnected, setWsConnected] = useState(false);
 
     useEffect(() => {
         let ws;
@@ -20,7 +24,7 @@ const AICompanion = () => {
             ws = new WebSocket(BACKEND_WS);
 
             ws.onopen = () => {
-                console.log('Connected to AI Companion WebSocket');
+                if (isMounted) setWsConnected(true);
             };
 
             ws.onmessage = (event) => {
@@ -75,6 +79,7 @@ const AICompanion = () => {
 
             ws.onclose = () => {
                 if (!isMounted) return;
+                setWsConnected(false);
                 // Reconnect after 3 seconds
                 reconnectTimeout = setTimeout(connectWs, 3000);
             };
@@ -111,10 +116,14 @@ const AICompanion = () => {
 
                 <div className="flex items-center gap-2">
                     <span className="relative flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                        {wsConnected && (
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        )}
+                        <span className={`relative inline-flex rounded-full h-2 w-2 ${wsConnected ? 'bg-green-500' : 'bg-amber-400/70'}`}></span>
                     </span>
-                    <span className="text-[10px] text-green-400 font-mono">SYNCED</span>
+                    <span className={`text-[10px] font-mono ${wsConnected ? 'text-green-400' : 'text-amber-300/80'}`}>
+                        {wsConnected ? 'CONNECTED' : 'OFFLINE'}
+                    </span>
                 </div>
             </div>
 
@@ -126,7 +135,7 @@ const AICompanion = () => {
                     ) : (
                         <AnimatePresence initial={false}>
                             {messages.map((msg) => (
-                                <motion.div
+                                <MotionDiv
                                     key={msg.id}
                                     initial={{ opacity: 0, x: msg.isAi ? -20 : 20, scale: 0.95 }}
                                     animate={{ opacity: 1, x: 0, scale: 1 }}
@@ -145,18 +154,21 @@ const AICompanion = () => {
                                     </div>
                                     <div className="flex-1 min-w-0 relative z-10 leading-snug">
                                         {msg.type === 'image' ? (
-                                            // eslint-disable-next-line @next/next/no-img-element
-                                            <img src={msg.payload} alt="Shared" className="w-full rounded-md object-cover max-h-32 border border-white/10" />
+                                            isSafeImgSrc(msg.payload) ? (
+                                                <img src={msg.payload} alt="Shared" className="w-full rounded-md object-cover max-h-32 border border-white/10" />
+                                            ) : (
+                                                <p className="text-[11px] text-white/40 italic">[invalid image payload]</p>
+                                            )
                                         ) : (
                                             <p className={`text-[13px] break-words font-medium ${msg.isAi ? "text-gray-200 whitespace-pre-wrap" : "text-blue-100/90 whitespace-pre-wrap"}`}>
                                                 {msg.payload}
                                             </p>
                                         )}
                                     </div>
-                                </motion.div>
+                                </MotionDiv>
                             ))}
                             {isTyping && (
-                                <motion.div
+                                <MotionDiv
                                     key="typing-indicator"
                                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
                                     animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -170,7 +182,7 @@ const AICompanion = () => {
                                         <span className="w-1.5 h-1.5 bg-white/50 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
                                         <span className="w-1.5 h-1.5 bg-white/50 rounded-full animate-bounce"></span>
                                     </div>
-                                </motion.div>
+                                </MotionDiv>
                             )}
                         </AnimatePresence>
                     )}

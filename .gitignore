@@ -33,3 +33,5 @@ dist-ssr
 
 # Recorded promo videos (scripts/record-showcase.mjs)
 promo-videos/
+
+!.env.example

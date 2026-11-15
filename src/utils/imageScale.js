@@ -14,13 +14,21 @@ export function scaleImageFile(
         reader.onerror = () => reject(reader.error || new Error('Failed to read image'));
         reader.onload = () => {
             const rawUrl = String(reader.result || '');
+            const MAX_FALLBACK_CHARS = 1_200_000;
+            const resolveSafeFallback = () => {
+                if (rawUrl.length > MAX_FALLBACK_CHARS) {
+                    reject(new Error('Image is too large and could not be scaled down in browser. Please upload a smaller PNG/JPEG.'));
+                    return;
+                }
+                resolve(rawUrl);
+            };
             const img = new Image();
-            img.onerror = () => resolve(rawUrl);
+            img.onerror = resolveSafeFallback;
             img.onload = () => {
                 const sw = img.naturalWidth || img.width || 0;
                 const sh = img.naturalHeight || img.height || 0;
                 if (!sw || !sh) {
-                    resolve(rawUrl);
+                    resolveSafeFallback();
                     return;
                 }
                 const ratio = Math.min(1, maxDim / Math.max(sw, sh));
@@ -32,7 +40,7 @@ export function scaleImageFile(
                     canvas.height = h;
                     const ctx = canvas.getContext('2d');
                     if (!ctx) {
-                        resolve(rawUrl);
+                        resolveSafeFallback();
                         return;
                     }
                     ctx.clearRect(0, 0, w, h);
@@ -40,7 +48,7 @@ export function scaleImageFile(
                     const mime = preserveAlpha ? 'image/png' : 'image/jpeg';
                     resolve(canvas.toDataURL(mime, quality));
                 } catch {
-                    resolve(rawUrl);
+                    resolveSafeFallback();
                 }
             };
             img.src = rawUrl;
