@@ -104,9 +104,6 @@ const note = (content, box, extra = {}) => ({
 });
 // Clip-path primitives — decorative accents that re-skin to the theme accent.
 const hexagon = (box, extra = {}) => ({ type: 'hexagon', box, bgColor: '@accent', bgOpacity: 0.85, ...extra });
-const diamond = (box, extra = {}) => ({ type: 'diamond', box, bgColor: '@accent', bgOpacity: 0.85, ...extra });
-const star    = (box, extra = {}) => ({ type: 'star', box, bgColor: '@accent', bgOpacity: 0.9, ...extra });
-const ellipse = (box, extra = {}) => ({ type: 'circle', box, bgColor: '@accent', bgOpacity: 0.85, ...extra });
 
 // Style-kit primitives — authored with the graphic tokens (@backdrop, @fx, @lt,
 // @frame, @display) so the same scene draws a HUD grid + glitch headline under
@@ -263,7 +260,10 @@ const kitShow = (c) => {
     const ink = c.light ? { fontColor: '@text', shadow: false } : {};
     const quiet = (content, box, extra = {}) => sub(content, box, c.light ? { fontColor: '@text', opacity: 0.75, shadow: false, ...extra } : extra);
     const glow = c.light ? { glow: false } : {};
-    const handles = (y, w = 22) => [
+    const handles = (y, w = 22) => c.socials
+        ? c.socials.map(({ platform, handle }, i) =>
+            social(platform, handle, { x: 50 - (c.socials.length * w) / 2 + i * w, y, w, h: 6 }, { align: 'center' }))
+        : [
         social('twitch', c.handle, { x: 50 - w * 1.5 - 1, y, w, h: 6 }, { align: 'center' }),
         social('youtube', c.handle, { x: 50 - w / 2, y, w, h: 6 }, { align: 'center' }),
         social('discord', 'discord.gg/' + c.handle.replace('@', ''), { x: 50 + w / 2 + 1, y, w, h: 6 }, { align: 'center' }),
@@ -298,14 +298,20 @@ const kitShow = (c) => {
     // the rest frame a plain cam with the theme's graphic cam-frame element.
     // Every scene sets camStyles so a shape never leaks into the next scene.
     const camStyles = c.camShape
-        ? { faceCam: { frame: c.camShape, radius: 0 }, roomCam: { frame: c.camShape, radius: 0 } }
-        : { faceCam: { frame: 'none' }, roomCam: { frame: 'none' } };
+        ? { faceCam: { frame: c.camShape, radius: 0 }, handCam: { frame: c.camShape, radius: 0 }, roomCam: { frame: c.camShape, radius: 0 } }
+        : { faceCam: { frame: 'none' }, handCam: { frame: 'none' }, roomCam: { frame: 'none' } };
     const camScene = (name, bg, els, boxes, vis) => scene(name, bg, els, boxes, vis, { camStyles });
     const framed = (box, extra) => (c.camShape ? [] : [camFrame(box, extra)]);
     const shapedBox = (box) => (c.camShape === 'circle' || c.camShape === 'hexagon' || c.camShape === 'diamond'
         // keep shaped cams roughly square on the 16:9 canvas
         ? { ...box, w: +(box.h * 9 / 16).toFixed(1) }
         : box);
+    const centerShaped = (base) => {
+        const sized = shapedBox(base);
+        return c.camShape
+            ? { ...sized, x: +(base.x + (base.w - sized.w) / 2).toFixed(1) }
+            : sized;
+    };
     const tickerLine = c.ticker ?? 'Welcome in — grab a seat\nFollow so you never miss a stream\n!discord to hang out between streams';
     const chatBg = c.chatBg ?? c.bg;
 
@@ -321,7 +327,7 @@ const kitShow = (c) => {
     ], { faceCam: gameCam }, { faceCam: true });
 
     // Just Chatting 1 — big cam left, chat column right.
-    const sideCam = c.camShape ? { x: 8, y: 13, w: 40, h: 72 } : { x: 3, y: 13, w: 58, h: 72 };
+    const sideCam = centerShaped({ x: 3, y: 13, w: 58, h: 72 });
     const chatting = camScene('Just Chatting', chatBg, [
         alerts({ x: 9, y: 16, w: 46, h: 30 }),
         live({ x: 3, y: 5, w: 10, h: 6 }),
@@ -333,7 +339,7 @@ const kitShow = (c) => {
     ], { faceCam: sideCam }, { faceCam: true });
 
     // Just Chatting 2 — centred cam, info column left, chat right.
-    const midCam = c.camShape ? { x: 31, y: 12, w: 38, h: 68 } : { x: 26, y: 12, w: 48, h: 68 };
+    const midCam = centerShaped({ x: 26, y: 12, w: 48, h: 68 });
     const center = camScene('Just Chatting · Center', chatBg, [
         alerts({ x: 28, y: 14, w: 44, h: 30 }),
         live({ x: 3, y: 4, w: 10, h: 6 }),
@@ -349,7 +355,7 @@ const kitShow = (c) => {
     // Game + Cam — a 16:9 game window (cut out so an OBS game capture shows
     // through), cam and chat stacked on the right.
     const gameWin = { x: 2, y: 4, w: 70, h: 70 };
-    const sideCam2 = c.camShape ? { x: 79, y: 4, w: 14, h: 30 } : { x: 74, y: 4, w: 24, h: 30 };
+    const sideCam2 = centerShaped({ x: 74, y: 4, w: 24, h: 30 });
     const game = camScene('Game + Cam', chatBg, [
         alerts({ x: 15, y: 12, w: 44, h: 30 }),
         camFrame(gameWin, { hole: true, content: 'GAME', frameStyle: '@frame' }),
@@ -362,8 +368,8 @@ const kitShow = (c) => {
 
     // Duo — two cams side by side for co-hosts and podcasts. The guest is the
     // Room Cam slot (name the OBS source with "room" for auto-placement).
-    const duoA = c.camShape ? { x: 12, y: 12, w: 33, h: 60 } : { x: 3, y: 12, w: 46, h: 62 };
-    const duoB = c.camShape ? { x: 55, y: 12, w: 33, h: 60 } : { x: 51, y: 12, w: 46, h: 62 };
+    const duoA = centerShaped({ x: 3, y: 12, w: 46, h: c.camShape ? 60 : 62 });
+    const duoB = centerShaped({ x: 51, y: 12, w: 46, h: c.camShape ? 60 : 62 });
     const duo = camScene('Duo', chatBg, [
         alerts({ x: 28, y: 14, w: 44, h: 30 }),
         live({ x: 3, y: 3, w: 10, h: 6 }),
@@ -756,6 +762,75 @@ const FESTIVE_LAYOUTS = [
     },
 ];
 
+const xaxinimBackground = grad('#252039', '#211b30', '180deg');
+const xaxinimHandle = '@xaxinim';
+const xaxinimLogo = (box) => ({
+    type: 'logo', src: '/brand/xaxinim.png', objectFit: 'contain', box,
+});
+
+// The original Vice Beach centre alignment, with one clear reading order.
+const xaxinimStandby = (name, title, description, detail = [], titleStyle = {}) => scene(name, xaxinimBackground, [
+    xaxinimLogo({ x: 45, y: 10, w: 10, h: 17.78 }),
+    headline(title, { x: 15, y: 30, w: 70, h: 19 }, {
+        fontSize: 124, fontColor: '@text', letterSpacing: 0, bold: false, shadow: false,
+        ...titleStyle,
+    }),
+    sub(description, { x: 20, y: 50, w: 60, h: 6 }, {
+        fontColor: '@text', fontSize: 24, letterSpacing: 1, shadow: false,
+    }),
+    ...detail,
+    sub('twitch.tv/xaxinim', { x: 35, y: 89, w: 30, h: 4 }, {
+        fontColor: '@text', fontSize: 18, letterSpacing: 1, shadow: false, opacity: 0.75,
+    }),
+    backdrop(),
+]);
+
+const xaxinimScenes = () => {
+    const [, ...scenes] = kitShow({
+        duo: true, bg: xaxinimBackground,
+        name: 'Xaxinim', handle: xaxinimHandle,
+        role: 'Ao vivo', chatRole: 'Bate-papo', hostRole: 'Anfitrião',
+    });
+    const liveScenes = scenes.slice(0, 5).map(entry => ({
+        ...entry,
+        snapshot: {
+            ...entry.snapshot,
+            elements: entry.snapshot.elements
+                .filter(el => !['goal', 'eventlist', 'ticker', 'social'].includes(el.type))
+                .flatMap(el => {
+                    if (el.type === 'frame') return { ...el, borderWidth: 2 };
+                    if (el.type === 'live') return { ...el, content: 'AO VIVO', bgOpacity: 0, pulse: false, dotColor: '#e89cad' };
+                    if (el.type === 'lowerthird') {
+                        const label = {
+                            ...el, variant: 'panel', bgOpacity: 0, fontSize: 26, subFontSize: 15,
+                            fontFamily: '@font', box: { ...el.box, h: 8 },
+                            content: el.content === 'Guest Name' ? 'Convidado' : el.content,
+                            subContent: el.subContent === 'Guest' ? 'Bate-papo' : el.subContent,
+                        };
+                        if (el.content !== 'Xaxinim') return label;
+                        return [
+                            { ...label, box: { ...label.box, x: el.box.x + 5.5, w: el.box.w - 5.5 } },
+                            { ...el, ...xaxinimLogo({ x: el.box.x, y: el.box.y, w: 4.5, h: 8 }), id: el.id + '-logo', bgOpacity: 0 },
+                        ];
+                    }
+                    return el;
+                }),
+        },
+    }));
+
+    return [
+        xaxinimStandby('Starting Soon', 'Xaxinim', 'A LIVE COMEÇA EM', [
+            countdown({ x: 39, y: 58, w: 22, h: 10 }, 300, {
+                fontFamily: '@font', fontColor: '@text', fontSize: 64, letterSpacing: 0, bold: false, glow: false, shadow: false,
+            }),
+        ]),
+        ...liveScenes,
+        xaxinimStandby('Be Right Back', 'Já volto', 'Uma pausa rápida.'),
+        xaxinimStandby('Ending', 'Até a próxima', 'Valeu por acompanhar a live.', [], { fontSize: 106 }),
+        xaxinimStandby('Offline', 'Offline', 'Nos vemos na próxima live.'),
+    ];
+};
+
 // Game packs — fan-made looks for the most-streamed games, each on its own
 // game theme and backdrop. Original graphics only, no game art or logos.
 const GAME_LAYOUTS = [
@@ -868,6 +943,11 @@ const GAME_LAYOUTS = [
             schedule: ['Mon · Story mode', 'Thu · Heist night', 'Sat · Online with viewers'],
             ticker: 'Follow for heist alerts\nDrop a 🌴 in chat\nCruise with the crew in !discord',
         }),
+    },
+    {
+        id: 'kit-xaxinim', name: 'Xaxinim · Vice Beach', themeId: 'xaxinim-vice', tags: ['games', 'gaming'], kit: true, isNew: true,
+        tagline: 'Pôr do sol lavanda, rosa e pêssego · cenas do Xaxinim',
+        scenes: xaxinimScenes(),
     },
     {
         id: 'kit-nether', name: 'Nether Run', themeId: 'nether', tags: ['games', 'gaming'], kit: true, isNew: true,

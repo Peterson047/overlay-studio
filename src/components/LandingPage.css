@@ -1,0 +1,99 @@
+.qorp-home {
+    --paper: #151714;
+    --ink: #f0f0e9;
+    --muted: #a3a69d;
+    --line: #353831;
+    --accent: #ff7956;
+    --lime: #d7f77b;
+    min-height: 100vh;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: Inter, "Helvetica Neue", Arial, sans-serif;
+}
+
+.qorp-home a { color: inherit; text-decoration: none; }
+.qorp-home a:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.qorp-home-bar, .qorp-home-main { width: min(1440px, 100%); margin-inline: auto; padding-inline: clamp(18px, 5vw, 72px); }
+.qorp-home-bar, .qorp-home-bar nav, .qorp-home-brand, .qorp-home-actions {
+    display: flex;
+    align-items: center;
+    gap: clamp(10px, 2vw, 24px);
+}
+.qorp-home-bar { min-height: 76px; justify-content: space-between; border-bottom: 1px solid var(--line); }
+.qorp-home-brand { gap: 8px; font-weight: 700; }
+.qorp-home-bar nav { color: var(--muted); font-size: 14px; }
+.qorp-home-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 48px;
+    padding: 0 18px;
+    border: 1px solid transparent;
+    font-size: 14px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.qorp-home a.qorp-home-button { background: var(--lime); color: var(--paper); }
+.qorp-home a.qorp-home-button:hover { background: var(--ink); }
+.qorp-home a.qorp-home-outline { background: transparent; color: var(--ink); border-color: var(--line); }
+.qorp-home a.qorp-home-outline:hover { background: #20231f; }
+.qorp-home-hero {
+    display: grid;
+    grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr);
+    align-items: center;
+    gap: clamp(24px, 5vw, 76px);
+    padding-block: clamp(48px, 8vw, 114px);
+}
+.qorp-home-label, .qorp-home-preview figcaption {
+    color: var(--muted);
+    font: 12px/1.5 Consolas, "Liberation Mono", monospace;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+}
+.qorp-home-label { color: var(--accent); margin-bottom: 16px; }
+.qorp-home h1 {
+    margin: 0;
+    font-size: clamp(46px, 6.5vw, 100px);
+    line-height: .95;
+    letter-spacing: -.075em;
+    font-weight: 650;
+    text-wrap: balance;
+}
+.qorp-home h1 span { color: var(--accent); }
+.qorp-home-lede { max-width: 40ch; margin-top: 22px; color: var(--muted); font-size: 17px; line-height: 1.6; }
+.qorp-home-actions { flex-wrap: wrap; margin-top: 26px; }
+.qorp-home-secondary { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; font-size: 14px; }
+.qorp-home-secondary svg, .qorp-home-steps svg { color: var(--accent); }
+.qorp-home-preview { margin: 0; min-width: 0; border: 1px solid var(--line); background: #20231f; }
+.qorp-home-preview img { display: block; width: 100%; height: auto; }
+.qorp-home-preview figcaption { padding: 11px 14px; }
+.qorp-home-workflow { border-top: 1px solid var(--line); padding-block: 36px 48px; }
+.qorp-home h2 { margin: 0; font-size: clamp(28px, 4vw, 48px); font-weight: 650; letter-spacing: -.045em; }
+.qorp-home-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 22px; }
+.qorp-home-steps article { padding: 24px; background: #20231f; border: 1px solid var(--line); }
+.qorp-home-steps h3 { margin: 14px 0 6px; font-size: 18px; font-weight: 650; }
+.qorp-home-steps p, .qorp-home-template p:last-child { margin: 0; color: var(--muted); line-height: 1.6; }
+.qorp-home-template {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 24px;
+    margin-bottom: 48px;
+    padding: clamp(22px, 4vw, 48px);
+    border: 1px solid var(--line);
+    background: #20231f;
+}
+.qorp-home-channel-logo { width: clamp(72px, 12vw, 112px); height: auto; aspect-ratio: 1; object-fit: contain; }
+.qorp-home-template > div { flex: 1 1 240px; }
+.qorp-home footer { border-top: 1px solid var(--line); border-bottom: 0; flex-wrap: wrap; color: var(--muted); font-size: 14px; }
+
+@media (max-width: 760px) {
+    .qorp-home-hero, .qorp-home-steps { grid-template-columns: 1fr; }
+}
+@media (max-width: 360px) {
+    .qorp-home-bar nav .qorp-home-outline { padding-inline: 8px; gap: 4px; }
+}
+
+body:has(.qorp-home) { overflow: auto; }

@@ -1,31 +1,7 @@
+/* eslint-disable react-refresh/only-export-components -- background presets and style helpers live beside BackgroundPanel */
 import { RefreshCw, Upload, X } from 'lucide-react';
 import { useRef } from 'react';
-
-// Load an image file, downscale it so its longest side is <= maxDim, and return
-// a compressed JPEG data URL. Keeps the synced layout small enough to persist
-// to the KV store (raw photos are several MB and fail to save).
-const scaleImageToDataURL = (file, maxDim = 1920, quality = 0.82) =>
-    new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onerror = () => reject(reader.error);
-        reader.onload = () => {
-            const img = new Image();
-            img.onerror = () => reject(new Error('Could not decode image'));
-            img.onload = () => {
-                const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-                const w = Math.max(1, Math.round(img.width * scale));
-                const h = Math.max(1, Math.round(img.height * scale));
-                const canvas = document.createElement('canvas');
-                canvas.width = w;
-                canvas.height = h;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, w, h);
-                resolve(canvas.toDataURL('image/jpeg', quality));
-            };
-            img.src = reader.result;
-        };
-        reader.readAsDataURL(file);
-    });
+import { scaleImageFile } from '../utils/imageScale.js';
 
 // ── Presets ────────────────────────────────────────────────────────────────
 export const PRESETS = [
@@ -51,8 +27,9 @@ export const bgToCss = (bg) => {
     if (bg.type === 'solid')    return bg.color;
     if (bg.type === 'gradient') return `linear-gradient(${bg.dir ?? '135deg'}, ${bg.from}, ${bg.to})`;
     if (bg.type === 'image' && bg.src) {
-        const overlay = bg.overlay ? `, rgba(0,0,0,${bg.overlayOpacity ?? 0.3})` : '';
-        return `url("${bg.src}")`;
+        return bg.overlay
+            ? `linear-gradient(rgba(0,0,0,${bg.overlayOpacity ?? 0.3}), rgba(0,0,0,${bg.overlayOpacity ?? 0.3})), url("${bg.src}")`
+            : `url("${bg.src}")`;
     }
     return 'transparent';
 };
@@ -62,14 +39,17 @@ export const bgToStyle = (bg) => {
     if (!bg || bg.type === 'transparent') return {};
     if (bg.type === 'solid')    return { background: bg.color };
     if (bg.type === 'gradient') return { background: `linear-gradient(${bg.dir ?? '135deg'}, ${bg.from}, ${bg.to})` };
-    if (bg.type === 'image' && bg.src) return {
-        backgroundImage: bg.overlay
-            ? `linear-gradient(rgba(0,0,0,${bg.overlayOpacity ?? 0.3}), rgba(0,0,0,${bg.overlayOpacity ?? 0.3})), url("${bg.src}")`
-            : `url("${bg.src}")`,
-        backgroundSize: bg.size ?? 'cover',
-        backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat',
-    };
+    if (bg.type === 'image' && bg.src) {
+        const repeat = bg.size === 'repeat';
+        return {
+            backgroundImage: bg.overlay
+                ? `linear-gradient(rgba(0,0,0,${bg.overlayOpacity ?? 0.3}), rgba(0,0,0,${bg.overlayOpacity ?? 0.3})), url("${bg.src}")`
+                : `url("${bg.src}")`,
+            backgroundSize: repeat ? 'auto' : (bg.size ?? 'cover'),
+            backgroundPosition: 'center',
+            backgroundRepeat: repeat ? 'repeat' : 'no-repeat',
+        };
+    }
     return {};
 };
 
@@ -129,7 +109,7 @@ const BackgroundPanel = ({ bg, onChange, onClose }) => {
     const isPresetActive = (p) => {
         if (p.type === 'transparent' && current.type === 'transparent') return true;
         if (p.type === 'solid' && current.type === 'solid' && current.color === p.color) return true;
-        if (p.type === 'gradient' && current.type === 'gradient' && current.from === p.from && current.to === p.to) return true;
+        if (p.type === 'gradient' && current.type === 'gradient' && current.from === p.from && current.to === p.to && (current.dir ?? '135deg') === (p.dir ?? '135deg')) return true;
         return false;
     };
 
@@ -140,8 +120,8 @@ const BackgroundPanel = ({ bg, onChange, onClose }) => {
             // Downscale + re-encode before storing. The image lives as a base64
             // string inside the synced layout, which is SET into Upstash on every
             // save — a raw multi-MB photo exceeds request limits and the save
-            // fails silently. ~1920px JPEG keeps it well under that.
-            const src = await scaleImageToDataURL(file, 1920, 0.82);
+            // fails silently. ~960px JPEG keeps it well under that.
+            const src = await scaleImageFile(file, { maxDim: 960, quality: 0.82, preserveAlpha: false });
             set({ type: 'image', src, size: 'cover', overlay: false, overlayOpacity: 0.3 });
         } catch (err) {
             console.error('[BackgroundPanel] image upload failed', err);
@@ -329,9 +309,7 @@ const BackgroundPanel = ({ bg, onChange, onClose }) => {
                         {current.src && (
                             <div style={{
                                 width: '100%', height: 72, borderRadius: 6,
-                                backgroundImage: `url("${current.src}")`,
-                                backgroundSize: current.size ?? 'cover',
-                                backgroundPosition: 'center',
+                                ...bgToStyle(current),
                                 border: '1px solid rgba(255,255,255,0.1)',
                                 overflow: 'hidden',
                             }} />

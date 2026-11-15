@@ -18,7 +18,7 @@ import { STARTER_LAYOUTS } from '../src/scenes/starterLayouts.js'
 import { THEMES } from '../src/theme/themes.js'
 
 const OUT = path.resolve(process.argv[2] || 'dist')
-const C = { bg: '#0b0b0d', ink: '#f1efe9', dim: 'rgba(241,239,233,0.56)', faint: 'rgba(241,239,233,0.34)', line: 'rgba(241,239,233,0.1)', accent: '#ff6a3d' }
+const C = { bg: '#151714', ink: '#f0f0e9', dim: 'rgba(240,240,233,0.56)', faint: 'rgba(240,240,233,0.34)', line: 'rgba(240,240,233,0.1)', accent: '#ff7956' }
 
 const esc = (s = '') => String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch])
 const url = (slug = '') => `${SITE.host}/${slug ? `${slug}/` : ''}`
@@ -74,17 +74,17 @@ const GUIDES = {
         steps: [
             ['Keep StreamKit for voice', 'Discord StreamKit is still the simplest way to show who\'s speaking in your voice channel. Add its voice widget as its own browser source.'],
             ['Build the rest of the overlay here', 'Use the <a href="/?studio">studio</a> for everything around it: cam frames, name plates, follower goals, timers, Twitch chat and scenes for Starting Soon, BRB and Ending.'],
-            ['Layer them in OBS', 'Add the Overlay Studio link as a 1920×1080 browser source and place the StreamKit source on top where you want the voice list to appear.'],
+            ['Layer them in OBS', 'Add the qorpStreamer link as a 1920×1080 browser source and place the StreamKit source on top where you want the voice list to appear.'],
         ],
         faq: [
-            ['Is this a replacement for Discord StreamKit?', 'Not for the voice widget itself. Overlay Studio doesn\'t read your Discord voice channel. It covers the rest of the overlay that StreamKit doesn\'t.'],
-            ['Is Overlay Studio free?', 'Yes, free and open source, with nothing to install.'],
+            ['Is this a replacement for Discord StreamKit?', 'Not for the voice widget itself. qorpStreamer doesn\'t read your Discord voice channel. It covers the rest of the overlay that StreamKit doesn\'t.'],
+            ['Is qorpStreamer free?', 'Yes, free and open source, with nothing to install.'],
         ],
     },
 }
 
 const templateFaq = (page, starter) => [
-    ['Is this overlay free?', 'Yes. Overlay Studio is free and open source. Open the template, edit it, and use it on stream with no sign-up and nothing to install.'],
+    ['Is this overlay free?', 'Yes. qorpStreamer is free and open source. Open the template, edit it, and use it on stream with no sign-up and nothing to install.'],
     ['Does it work with Twitch, YouTube and Kick?', 'Yes. The overlay runs in OBS Studio, Streamlabs Desktop, XSplit or Meld Studio as a browser source, so it works with whatever platform you stream to.'],
     ['Can I change the colours and text?', `Yes. Every scene in the ${esc(starter.name)} kit is fully editable: move things around, change the text, swap the theme or add widgets like goals, timers and chat.`],
     ...(groupOf(page) === 'games'
@@ -104,12 +104,12 @@ const shell = ({ slug, title, description, body, jsonld = [], fonts = [] }) => {
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>${esc(title)}</title>
     <meta name="description" content="${esc(description)}" />
-    <link rel="canonical" href="${url(slug)}" />
+    ${SITE.host ? `<link rel="canonical" href="${esc(url(slug))}" />` : ''}
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="${esc(SITE.brand)}" />
     <meta property="og:title" content="${esc(title)}" />
     <meta property="og:description" content="${esc(description)}" />
-    <meta property="og:url" content="${url(slug)}" />
+    ${SITE.host ? `<meta property="og:url" content="${esc(url(slug))}" />` : ''}
     <meta name="twitter:card" content="summary" />
 ${jsonld.map(j => `    <script type="application/ld+json">${JSON.stringify(j)}</script>`).join('\n')}
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -127,7 +127,7 @@ ${jsonld.map(j => `    <script type="application/ld+json">${JSON.stringify(j)}</
       h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:clamp(34px,6vw,60px);line-height:1.05;letter-spacing:-1px;margin:16px 0 0;max-width:760px}
       h2{font-family:'Space Grotesk',sans-serif;font-size:20px;letter-spacing:-0.3px;margin:48px 0 12px}
       .lead{font-size:17px;color:${C.dim};max-width:600px;margin:22px 0 0}
-      .cta{display:inline-block;margin-top:28px;padding:12px 20px;border-radius:999px;background:${C.accent};color:#0b0b0d;font-family:'Space Grotesk',sans-serif;font-weight:700;text-decoration:none}
+      .cta{display:inline-block;margin-top:28px;padding:12px 20px;border-radius:999px;background:${C.accent};color:#151714;font-family:'Space Grotesk',sans-serif;font-weight:700;text-decoration:none}
       .cta + a{margin-left:18px;color:${C.dim};font-size:15px}
       .preview{margin-top:40px;aspect-ratio:16/9;border-radius:14px;border:1px solid ${C.line};display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:20px;overflow:hidden}
       .preview .name{font-size:clamp(30px,7vw,72px);line-height:1.1}
@@ -140,7 +140,7 @@ ${jsonld.map(j => `    <script type="application/ld+json">${JSON.stringify(j)}</
       .card{display:block;padding:16px;border:1px solid ${C.line};border-radius:12px;text-decoration:none}
       .card span{display:block;font-size:13px;color:${C.faint};margin-top:4px}
       .swatch{height:6px;border-radius:3px;margin-bottom:12px}
-      code{font-size:.9em;background:rgba(241,239,233,0.08);padding:1px 5px;border-radius:4px}
+      code{font-size:.9em;background:rgba(240,240,233,0.08);padding:1px 5px;border-radius:4px}
       footer{margin-top:72px;padding-top:24px;padding-bottom:48px;border-top:1px solid ${C.line};font-size:13px;color:${C.faint}}
       footer a{color:${C.faint}}
     </style>
@@ -157,7 +157,7 @@ ${body}
     </main>
     <footer>
       ${esc(SITE.brandLong)} · free, open-source stream overlay editor ·
-      <a href="${SITE.github}">GitHub</a> · <a href="/templates/">All templates</a>
+      Mantido pela Qorp · <a href="/templates/">All templates</a>
     </footer>
   </body>
 </html>
@@ -308,5 +308,8 @@ for (const page of pages) {
     write(`${page.slug}/index.html`, html)
 }
 write('templates/index.html', hubPage(pages))
-write('sitemap.xml', sitemap(pages))
-console.log(`seo-pages: wrote ${pages.length} pages + hub + sitemap to ${path.relative(process.cwd(), OUT) || '.'}`)
+if (SITE.host) {
+    write('sitemap.xml', sitemap(pages))
+    write('robots.txt', `User-agent: *\nAllow: /\n\nSitemap: ${url()}sitemap.xml\n`)
+}
+console.log(`seo-pages: wrote ${pages.length} pages + hub to ${path.relative(process.cwd(), OUT) || '.'}`)

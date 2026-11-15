@@ -18,6 +18,7 @@ const COMPETITION = process.env.FOOTBALL_DATA_COMPETITION || 'WC';
 // the upstream feed is hit at most once per TTL no matter how many viewers —
 // 10s = up to 6 calls/min, safely under the free tier's 10/min.
 const CACHE_TTL = 10; // seconds
+const SAMPLE_UPDATED_AT = 1;
 
 let _redis;
 function getRedis() {
@@ -30,11 +31,17 @@ export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Cache-Control', 'no-store');
     if (req.method === 'OPTIONS') { res.status(204).end(); return; }
+    if (req.method !== 'GET') { res.status(405).json({ error: 'Method not allowed' }); return; }
 
-    // No token configured → serve sample fixtures so the picker still works.
+    const clientVer = req.query?.v != null ? String(req.query.v) : '';
+
+    // No token configured → serve sample fixtures with a stable timestamp so
+    // polling clients with `?v=` get 204 instead of downloading fixtures repeatedly.
     if (!TOKEN) {
-        res.status(200).json({ configured: false, updatedAt: Date.now(), matches: SAMPLE_MATCHES });
+        if (clientVer === String(SAMPLE_UPDATED_AT)) { res.status(204).end(); return; }
+        res.status(200).json({ configured: false, updatedAt: SAMPLE_UPDATED_AT, matches: SAMPLE_MATCHES });
         return;
     }
 
@@ -43,7 +50,14 @@ export default async function handler(req, res) {
         const redis = getRedis();
         if (redis) {
             const cached = await redis.get(cacheKey); // parsed JSON
-            if (cached) { res.status(200).json(cached); return; }
+            if (cached) {
+                if (clientVer && String(cached.updatedAt) === clientVer) {
+                    res.status(204).end();
+                    return;
+                }
+                res.status(200).json(cached);
+                return;
+            }
         }
         const matches = await fetchMatches(TOKEN, COMPETITION);
         const payload = { configured: true, updatedAt: Date.now(), matches };

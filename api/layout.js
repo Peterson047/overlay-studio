@@ -1,4 +1,12 @@
 import { Redis } from '@upstash/redis';
+import {
+    applyLayoutWrite,
+    buildLayoutGetResponse,
+    formatVer,
+    keysFor,
+    newTag,
+    roomOf,
+} from '../layout.store.js';
 
 // One small KV store holds the overlay design, keyed per `room`. This replaces
 // the old local Node server's layout-settings.json so OBS can load the design
@@ -22,17 +30,21 @@ function getRedis() {
     return _redis;
 }
 
-const roomOf = (room) => String(room || 'default').slice(0, 64).replace(/[^\w.-]/g, '_');
-// Three keys per room, so polls stay cheap (Upstash bills bandwidth per byte):
-//   layout:<room>     — the live design (everything except the saved library)
-//   layoutlib:<room>  — the saved layouts/scenes library (`layouts`), often
-//                       hundreds of KB; only the editor needs it, never OBS
-//   layoutver:<room>  — a tiny version tag, bumped on every write
-const keysFor = (room) => {
-    const r = roomOf(room);
-    return { key: `layout:${r}`, libKey: `layoutlib:${r}`, verKey: `layoutver:${r}` };
-};
-const newVer = () => `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+// Atomic Compare-And-Swap Lua commit so concurrent writes (e.g. a widget
+// `livePatch` timer/wheel trigger racing a design edit) never clobber each other
+// while keeping JSON serialization cleanly in JS (avoids Lua cjson `[]` -> `{}`).
+const CAS_COMMIT_LUA = `
+local cur = redis.call('GET', KEYS[1])
+if not cur then cur = '' end
+if cur ~= ARGV[1] then
+  return {0, cur}
+end
+redis.call('SET', KEYS[1], ARGV[2])
+if ARGV[3] == '1' then redis.call('SET', KEYS[2], ARGV[4]) end
+if ARGV[5] == '1' then redis.call('SET', KEYS[3], ARGV[6]) end
+if ARGV[7] == '1' then redis.call('SET', KEYS[4], ARGV[8]) end
+return {1, ARGV[2]}
+`;
 
 // Older rooms stored `layouts` inside the main blob. Move it to its own key the
 // first time we touch the room; returns the main blob without it.
@@ -44,6 +56,35 @@ async function splitLegacy(redis, keys, main) {
     p.set(keys.key, rest);
     await p.exec();
     return rest;
+}
+
+async function commitWrite(redis, keys, expectedVer, plan) {
+    if (typeof redis.eval === 'function') {
+        const res = await redis.eval(
+            CAS_COMMIT_LUA,
+            [keys.verKey, keys.key, keys.libKey, keys.liveKey],
+            [
+                expectedVer ?? '',
+                plan.nextVer,
+                plan.writeMain ? '1' : '0',
+                plan.writeMain ? JSON.stringify(plan.nextMain) : '',
+                plan.writeLib ? '1' : '0',
+                plan.writeLib ? JSON.stringify(plan.nextLib) : '',
+                plan.writeLive ? '1' : '0',
+                plan.writeLive ? JSON.stringify(plan.nextLive) : '',
+            ],
+        );
+        const ok = Array.isArray(res) ? Number(res[0]) === 1 : true;
+        return ok;
+    }
+
+    const p = redis.pipeline();
+    if (plan.writeMain) p.set(keys.key, plan.nextMain);
+    if (plan.writeLib) p.set(keys.libKey, plan.nextLib);
+    if (plan.writeLive) p.set(keys.liveKey, plan.nextLive);
+    p.set(keys.verKey, plan.nextVer);
+    await p.exec();
+    return true;
 }
 
 export default async function handler(req, res) {
@@ -68,54 +109,75 @@ export default async function handler(req, res) {
         const redis = getRedis();
 
         if (req.method === 'GET') {
-            // ?v=<version> — the client already has this version: answer with an
-            // empty 204 after reading only the tiny version key.
+            // ?v=<version> — check only the tiny version key first so unchanged
+            // polls answer with an empty 204 and timer/trigger updates read only live:<room>.
             let ver = await redis.get(keys.verKey);
             if (ver == null) {
-                ver = newVer();
+                ver = formatVer(newTag('d'), newTag('l'));
                 await redis.set(keys.verKey, ver);
             }
             ver = String(ver);
-            if (req.query.v && String(req.query.v) === ver) {
+
+            const lite = req.query.lite !== undefined || isShared;
+            const result = await buildLayoutGetResponse({
+                reqVer: req.query.v,
+                curVer: ver,
+                lite,
+                isShared,
+                getMain: async () => splitLegacy(redis, keys, await redis.get(keys.key)),
+                getLive: () => redis.get(keys.liveKey),
+                getLib: () => redis.get(keys.libKey),
+            });
+
+            if (result.status === 204) {
                 res.status(204).end();
                 return;
             }
-
-            // ?lite=1 (OBS overlays) skips the saved-layouts library entirely.
-            // The shared default room never serves one (it's per-browser there).
-            const lite = req.query.lite !== undefined || isShared;
-            const main = await splitLegacy(redis, keys, await redis.get(keys.key)); // parsed JSON
-            const out = { ...(main || {}) };
-            if (!lite) {
-                const layouts = await redis.get(keys.libKey);
-                if (layouts != null) out.layouts = layouts;
-            }
-            out._v = ver;
-            res.status(200).json(out);
+            res.status(200).json(result.body);
             return;
         }
 
         if (req.method === 'POST') {
             const body =
                 typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
-            // `_clientId` was only used to de-dupe WebSocket echoes; `_v` is the
-            // version a client got back — neither belongs in the stored design.
-            const { _clientId, _v, layouts: sentLayouts, ...patch } = body;
-            const layouts = isShared ? undefined : sentLayouts;
-            const p = redis.pipeline();
-            const existing = (await redis.get(keys.key)) || {};
-            const hasLegacy = 'layouts' in existing;
-            if (Object.keys(patch).length || hasLegacy) {
-                const { layouts: legacyLayouts, ...rest } = existing;
-                // Migrate a legacy inline library unless this write replaces it.
-                if (hasLegacy && layouts === undefined) p.set(keys.libKey, legacyLayouts ?? []);
-                p.set(keys.key, { ...rest, ...patch });
+
+            const MAX_RETRIES = 6;
+            for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+                const [curVerRaw, existingMain, existingLib, existingLive] =
+                    typeof redis.mget === 'function'
+                        ? await redis.mget(keys.verKey, keys.key, keys.libKey, keys.liveKey)
+                        : await Promise.all([
+                              redis.get(keys.verKey),
+                              redis.get(keys.key),
+                              redis.get(keys.libKey),
+                              redis.get(keys.liveKey),
+                          ]);
+
+                const expectedVer = curVerRaw == null ? '' : String(curVerRaw);
+                const plan = applyLayoutWrite(
+                    {
+                        existingMain,
+                        existingLib,
+                        existingLive,
+                        curVer: expectedVer,
+                    },
+                    body,
+                    { isShared, nowMs: Date.now() },
+                );
+
+                const committed = await commitWrite(redis, keys, expectedVer, plan);
+                if (committed) {
+                    res.status(200).json({
+                        ok: true,
+                        _v: plan.nextVer,
+                        serverNow: plan.nowMs,
+                        ...(plan.writeLive ? { live: plan.nextLive } : {}),
+                    });
+                    return;
+                }
             }
-            if (layouts !== undefined) p.set(keys.libKey, layouts);
-            const ver = newVer();
-            p.set(keys.verKey, ver);
-            await p.exec();
-            res.status(200).json({ ok: true, _v: ver });
+
+            res.status(409).json({ error: 'Concurrent layout write conflict; please retry.' });
             return;
         }
 

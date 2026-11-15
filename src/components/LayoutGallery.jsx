@@ -3,7 +3,6 @@ import { Check, ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react';
 import { getTheme } from '../theme/themes';
 import { TEMPLATE_CATEGORIES } from '../scenes/starterLayouts';
-import { CONTACT_EMAIL } from '../config';
 import { sceneHoles } from './graphics';
 import { bgToStyle } from './BackgroundPanel';
 import CameraFrame, { DEFAULT_CAM_STYLE } from './CameraFrame';
@@ -147,7 +146,7 @@ const ScenePreview = ({ scenes = [], startIndex = 0, theme, onOpen, openTitle, c
 // shows the big preview and the Open / Use action.
 const Card = ({ active, selected, onSelect, children }) => {
     const [hover, setHover] = useState(false);
-    const accent = selected ? 'rgba(165,180,252,0.9)' : active ? 'rgba(99,102,241,0.5)' : hover ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.06)';
+    const accent = selected ? 'rgba(165,180,252,0.9)' : active ? 'rgba(255,121,86,0.5)' : hover ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.06)';
     return (
         <div
             onClick={onSelect}
@@ -155,7 +154,7 @@ const Card = ({ active, selected, onSelect, children }) => {
             onMouseLeave={() => setHover(false)}
             style={{
                 display: 'flex', flexDirection: 'column', gap: 6, padding: 6, borderRadius: 10, cursor: 'pointer',
-                background: selected ? 'rgba(99,102,241,0.14)' : hover ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.025)',
+                background: selected ? 'rgba(255,121,86,0.14)' : hover ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.025)',
                 border: `1px solid ${accent}`, boxShadow: selected ? '0 0 0 1px rgba(165,180,252,0.35)' : 'none',
                 transition: 'background 0.12s, border-color 0.12s',
             }}
@@ -166,7 +165,7 @@ const Card = ({ active, selected, onSelect, children }) => {
 };
 
 const ActiveBadge = () => (
-    <span style={{ position: 'absolute', top: 5, right: 5, display: 'flex', alignItems: 'center', gap: 3, background: 'rgba(79,70,229,0.85)', borderRadius: 5, padding: '2px 6px', fontSize: 8, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 0.5, color: '#fff' }}>
+    <span style={{ position: 'absolute', top: 5, right: 5, display: 'flex', alignItems: 'center', gap: 3, background: 'rgba(242,96,56,0.85)', borderRadius: 5, padding: '2px 6px', fontSize: 8, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 0.5, color: '#fff' }}>
         <Check size={9} /> Active
     </span>
 );
@@ -211,7 +210,7 @@ const LayoutCard = ({ layout, active, selected, onSelect, onRename, onDelete }) 
                         onBlur={commitName}
                         onKeyDown={e => { if (e.key === 'Enter') commitName(); if (e.key === 'Escape') { setName(layout.name); setEditing(false); } }}
                         style={{
-                            flex: 1, minWidth: 0, background: '#15152a', border: '1px solid rgba(99,102,241,0.4)', borderRadius: 5,
+                            flex: 1, minWidth: 0, background: '#15152a', border: '1px solid rgba(255,121,86,0.4)', borderRadius: 5,
                             color: '#fff', fontSize: 11, padding: '3px 6px', outline: 'none', fontFamily: 'inter, system-ui',
                         }}
                     />
@@ -298,7 +297,7 @@ const DetailPanel = ({ kind, item, active, onPrimary }) => {
                         {scenes.map((sc, j) => (
                             <button key={sc.id ?? j} onClick={() => setIdx(j)} style={{
                                 display: 'flex', flexDirection: 'column', gap: 4, padding: 4, borderRadius: 8, cursor: 'pointer', textAlign: 'left',
-                                background: j === i ? 'rgba(99,102,241,0.16)' : 'rgba(255,255,255,0.03)',
+                                background: j === i ? 'rgba(255,121,86,0.16)' : 'rgba(255,255,255,0.03)',
                                 border: `1px solid ${j === i ? 'rgba(165,180,252,0.7)' : 'rgba(255,255,255,0.07)'}`,
                             }}>
                                 <Thumb snapshot={sc.snapshot} fallbackTheme={theme} />
@@ -323,7 +322,7 @@ const TabBtn = ({ active, onClick, children, count }) => (
         fontSize: 11, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1.2,
     }}>
         {children}
-        <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 999, background: active ? 'rgba(99,102,241,0.45)' : 'rgba(255,255,255,0.07)', color: active ? '#fff' : 'rgba(255,255,255,0.45)' }}>{count}</span>
+        <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 999, background: active ? 'rgba(255,121,86,0.45)' : 'rgba(255,255,255,0.07)', color: active ? '#fff' : 'rgba(255,255,255,0.45)' }}>{count}</span>
     </button>
 );
 
@@ -403,7 +402,7 @@ const LayoutGallery = ({ layouts = [], activeLayoutId, starters = [], onAddStart
                             title="Create a new layout from the current canvas"
                             style={{
                                 display: 'flex', alignItems: 'center', gap: 5, padding: '0 14px', borderRadius: 7,
-                                background: 'rgba(79,70,229,0.5)', border: '1px solid rgba(99,102,241,0.5)', color: '#fff',
+                                background: 'rgba(242,96,56,0.5)', border: '1px solid rgba(255,121,86,0.5)', color: '#fff',
                                 fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1, cursor: 'pointer', whiteSpace: 'nowrap',
                             }}
                         >
@@ -421,7 +420,7 @@ const LayoutGallery = ({ layouts = [], activeLayoutId, starters = [], onAddStart
                             return (
                                 <button key={cat.id} onClick={() => setCategory(cat.id)} style={{
                                     padding: '4px 10px', borderRadius: 999, cursor: 'pointer',
-                                    background: on ? 'rgba(99,102,241,0.3)' : 'rgba(255,255,255,0.04)',
+                                    background: on ? 'rgba(255,121,86,0.3)' : 'rgba(255,255,255,0.04)',
                                     border: `1px solid ${on ? 'rgba(165,180,252,0.6)' : 'rgba(255,255,255,0.09)'}`,
                                     color: on ? '#fff' : 'rgba(255,255,255,0.55)', fontSize: 10, fontFamily: 'monospace', letterSpacing: 0.5,
                                 }}>
@@ -439,7 +438,7 @@ const LayoutGallery = ({ layouts = [], activeLayoutId, starters = [], onAddStart
                             <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.35)', fontSize: 12, fontFamily: 'monospace', lineHeight: 1.8, padding: '60px 20px' }}>
                                 No saved layouts yet.<br />
                                 {hasStarters && <>Pick one from <button onClick={() => setTab('templates')} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#6ee7b7', fontFamily: 'inherit', fontSize: 'inherit', textDecoration: 'underline' }}>Templates</button>, or name</>}
-                                {!hasStarters && 'Name'} one above and hit <span style={{ color: '#a5b4fc' }}>New layout</span> to capture the current canvas.
+                                {!hasStarters && 'Name'} one above and hit <span style={{ color: '#ff7956' }}>New layout</span> to capture the current canvas.
                             </div>
                         ) : (
                             <div style={LIST_GRID}>
@@ -456,12 +455,6 @@ const LayoutGallery = ({ layouts = [], activeLayoutId, starters = [], onAddStart
                                             onDelete={onDelete}
                                         />
                                     ))}
-                            </div>
-                        )}
-                        {tab === 'templates' && (
-                            <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 8, border: '1px dashed rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.5)', fontSize: 11, fontFamily: 'monospace', lineHeight: 1.6, textAlign: 'center' }}>
-                                Want a custom overlay for your channel?{' '}
-                                <a href={`mailto:${CONTACT_EMAIL}?subject=Custom%20stream%20overlay`} style={{ color: '#a5b4fc', textDecoration: 'none' }}>{CONTACT_EMAIL}</a>
                             </div>
                         )}
                     </div>

@@ -121,7 +121,7 @@ const AlertCard = ({ alert, element, T, leaving = false, ghost = false }) => {
 
 // ── Alert box ──────────────────────────────────────────────────────────────
 
-export const AlertBox = ({ element, T, channel: layoutChannel, editMode }) => {
+export const AlertBox = ({ element, T, channel: layoutChannel, editMode, liveTrigger, serverOffsetMs = 0 }) => {
     const channel = normalizeChannel(element.channel || layoutChannel);
     const [queue, setQueue] = useState([]);
     const [leaving, setLeaving] = useState(false);
@@ -129,6 +129,35 @@ export const AlertBox = ({ element, T, channel: layoutChannel, editMode }) => {
     useTwitchAlerts(channel, (a) => {
         if (wanted(element, a)) setQueue(q => [...q, a].slice(-20));
     });
+
+    // Live triggers pushed via liveState.triggers[element.id]; ignore stale
+    // triggers older than 15s on initial mount so reopening ?obs doesn't replay.
+    const seenSeqRef = useRef(null);
+    useEffect(() => {
+        if (!liveTrigger || (liveTrigger.kind && liveTrigger.kind !== 'alerts')) return undefined;
+        const seq = liveTrigger.seq ?? liveTrigger.at;
+        if (seq == null) return undefined;
+        if (seenSeqRef.current === null) {
+            const ageMs = typeof liveTrigger.at === 'number'
+                ? (Date.now() + serverOffsetMs) - liveTrigger.at
+                : 0;
+            if (ageMs > 15000) {
+                seenSeqRef.current = seq;
+                return undefined;
+            }
+        } else if (seq <= seenSeqRef.current) {
+            return undefined;
+        }
+        const raf = requestAnimationFrame(() => {
+            if (seenSeqRef.current !== null && seq <= seenSeqRef.current) return;
+            seenSeqRef.current = seq;
+            const alertType = liveTrigger.type || 'sub';
+            const at = liveTrigger.at ?? Date.now();
+            const alert = { ...sampleAlert(alertType, at), id: `trigger-${alertType}-${seq}-${at}` };
+            setQueue(q => [...q, alert].slice(-20));
+        });
+        return () => cancelAnimationFrame(raf);
+    }, [liveTrigger, serverOffsetMs]);
 
     // Test alerts are published on the element as { type, at } so the editor
     // and the OBS source both play them. A test that predates mount is ignored.

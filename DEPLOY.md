@@ -31,7 +31,7 @@ OBS loads it from an always-on URL with nothing running on your machine.
   picks it up.
 
 The `?room=` value is a private slot id. The editor and OBS **must use the same
-room** to share a design. Pick something hard to guess (e.g. `?room=abhay-x9f2`)
+room** to share a design. Pick something hard to guess (e.g. `?room=minha-live-x9f2`)
 since the endpoint is public — anyone with the exact room URL can read/overwrite
 that slot. No `?room=` ⇒ the shared `default` slot.
 

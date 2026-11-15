@@ -6,12 +6,10 @@
  * browser source that reloads on every scene switch, which would otherwise
  * drown the landing-page numbers in fake sessions.
  *
- * The measurement ID comes from VITE_GA_ID at build time (Vercel → Settings →
- * Environment Variables), falling back to the one property we ship with.
- * Set VITE_GA_ID to empty in an environment (e.g. previews) to disable it.
+ * Set VITE_GA_ID at build time to enable analytics for that property.
  */
 
-const GA_ID = import.meta.env.VITE_GA_ID ?? 'G-8C9W0F5GJ3';
+const GA_ID = import.meta.env.VITE_GA_ID;
 
 // Only the OBS browser source is worth excluding — it carries ?obs= and
 // reloads on every scene switch, which would otherwise drown the real numbers

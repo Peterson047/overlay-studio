@@ -1,6 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- Two layered overlay panels — matches the landing palette -->
-  <rect width="64" height="64" rx="14" fill="#0b0b0d"/>
-  <rect x="13" y="17" width="27" height="19" rx="4" fill="none" stroke="#f1efe9" stroke-width="4"/>
-  <rect x="25" y="29" width="27" height="19" rx="4" fill="#ff6a3d"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Fundo preto redondo -->
+  <circle cx="256" cy="256" r="256" fill="#000000"/>
+
+  <!-- Logo Q centralizado: original viewBox 0 0 61.87 55.5, escala ≈4.52 → 280×251px, centrado em 512×512 -->
+  <g transform="translate(116, 130) scale(4.52)">
+    <path fill="#FFFFFF" d="M61.5 21.75h-6.29a.48.48 0 0 1-.45-.37 27.75 27.75 0 1 0 0 12.74.48.48 0 0 1 .45-.37h6.29a.37.37 0 0 0 .37-.37V22.12a.37.37 0 0 0-.37-.37zm-49.5 6a15.75 15.75 0 0 1 30.16-6.35.23.23 0 0 1-.23.35H34.5a.38.38 0 0 0-.38.37v11.26a.38.38 0 0 0 .38.37h7.43a.23.23 0 0 1 .23.35A15.75 15.75 0 0 1 12 27.75z"/>
+  </g>
 </svg>

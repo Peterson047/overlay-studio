@@ -69,6 +69,7 @@ export const BACKDROPS = [
     { id: 'sunset',    label: 'Sunset city' },
     { id: 'hextech',   label: 'Hextech runes' },
     { id: 'vicebeach', label: 'Vice beach' },
+    { id: 'vicedusk', label: 'Vice beach · dusk' },
     { id: 'nether',    label: 'Nether lava' },
     { id: 'scope',     label: 'Sniper scope' },
     { id: 'dust',      label: 'Desert site' },
@@ -1234,30 +1235,32 @@ const Hextech = ({ a, b }) => (
 
 // Pastel ocean sunset with a neon-outlined skyline, sun glitter on the water
 // and palms (GTA VI-style Vice City beach).
-const ViceBeach = ({ a, b, panel }) => {
+const ViceBeach = ({ a, b, panel, dusk = false }) => {
     const H = 840;   // horizon
     // Two skyline clusters either side of the sun, kept low so headlines stay clear.
     const towers = [];
     for (let i = 0, x = 330; x < 1590; i++) {
         const w = 44 + rand(i, 380) * 56, h = 50 + rand(i, 381) * (i % 5 === 2 ? 170 : 90);
-        if (x + w < 720 || x > 1200) towers.push(<rect key={i} x={x} y={H - h} width={w - 8} height={h} fill={panel} stroke={i % 3 ? a : b} strokeWidth="2.5" />);
+        if (x + w < 720 || x > 1200) towers.push(<rect key={i} x={x} y={H - h} width={w - 8} height={h} fill={panel} stroke={dusk ? 'none' : i % 3 ? a : b} strokeWidth="2.5" />);
         x += w;
     }
     return (
         <div style={{ ...fill, overflow: 'hidden' }}>
-            <div style={{ ...fill, background: `linear-gradient(180deg, transparent 5%, ${rgba(a, 0.3)} 45%, ${rgba('#ffb36b', 0.45)} 77.7%, transparent 77.8%)` }} />
-            <div style={{ position: 'absolute', left: '50%', top: H - 120, width: 420, height: 420, marginLeft: -210, borderRadius: '50%', background: `linear-gradient(180deg, #fff1a8, #ffb36b 45%, ${a})`, boxShadow: `0 0 120px ${rgba(a, 0.6)}` }} />
+            <div style={{ ...fill, background: dusk
+                ? `linear-gradient(180deg, #252039 0%, #534064 32%, ${a} 66%, ${b} 77.7%, ${panel} 77.8%)`
+                : `linear-gradient(180deg, transparent 5%, ${rgba(a, 0.3)} 45%, ${rgba('#ffb36b', 0.45)} 77.7%, transparent 77.8%)` }} />
+            <div style={{ position: 'absolute', left: '50%', top: H - 120, width: 420, height: 420, marginLeft: -210, borderRadius: '50%', background: `linear-gradient(180deg, #fff1a8, #ffb36b 45%, ${a})`, boxShadow: dusk ? 'none' : `0 0 120px ${rgba(a, 0.6)}` }} />
             <svg viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMax slice" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
-                <g style={{ filter: `drop-shadow(0 0 6px ${a})` }}>{towers}</g>
+                <g opacity={dusk ? 0.65 : 1} style={{ filter: dusk ? 'none' : `drop-shadow(0 0 6px ${a})` }}>{towers}</g>
                 <rect x="0" y={H} width="1920" height={1080 - H} fill={panel} />
                 <rect x="0" y={H} width="1920" height={1080 - H} fill={b} opacity="0.12" />
-                <rect x="0" y={H} width="1920" height="3" fill={a} opacity="0.8" />
+                <rect x="0" y={H} width="1920" height={dusk ? 1 : 3} fill={a} opacity={dusk ? 0.25 : 0.8} />
             </svg>
-            {Array.from({ length: 34 }, (_, i) => {
+            {Array.from({ length: dusk ? 12 : 34 }, (_, i) => {
                 const y = H + 12 + rand(i, 382) * 300, spread = 60 + (y - H) * 0.9;
                 return (
                     <div key={i} style={{
-                        position: 'absolute', left: 960 + (rand(i, 383) - 0.5) * spread * 2 - 30, top: y, width: 40 + rand(i, 384) * 60, height: 4, borderRadius: 2,
+                        position: 'absolute', left: 960 + (rand(i, 383) - 0.5) * spread * 2 - 30, top: y, width: 40 + rand(i, 384) * 60, height: dusk ? 2 : 4, borderRadius: 2, opacity: dusk ? 0.3 : 1,
                         background: i % 4 ? '#ffd9a0' : b, animation: `twinkle ${1.5 + rand(i, 385) * 2}s ease-in-out ${-rand(i, 386) * 3}s infinite`,
                     }} />
                 );
@@ -1272,8 +1275,11 @@ const ViceBeach = ({ a, b, panel }) => {
     );
 };
 
+const ViceDusk = (props) => <ViceBeach {...props} dusk />;
+
 // Netherrack ceiling and floor, a glowing lava sea, falling ash and rising
 // sparks (Minecraft Nether-style).
+
 const Nether = ({ a, b }) => {
     const S = 48, cells = [];
     for (let i = 0; i * S < 1920; i++) {
@@ -1461,7 +1467,7 @@ const BACKDROP_MAP = {
     diyas: Diyas, fireworks: Fireworks, snowfall: Snowfall, pumpkins: Pumpkins, holi: Holi,
     lanterns: Lanterns, crescent: Crescent, hearts: Hearts, leaves: Leaves, balloons: Balloons,
     shards: Shards, airdrop: Airdrop, storm: Storm, radar: Radar, ring: Ring, blocks: Blocks,
-    sunset: Sunset, hextech: Hextech, vicebeach: ViceBeach, nether: Nether, scope: Scope, dust: Dust,
+    sunset: Sunset, hextech: Hextech, vicebeach: ViceBeach, vicedusk: ViceDusk, nether: Nether, scope: Scope, dust: Dust,
     blaze: Blaze, obby: Obby,
 };
 
@@ -1797,6 +1803,7 @@ const holePath = ({ box, shape = 'rect', radius = 0 }, frame, fw, fh) => {
     const y = ((box.y - frame.y) / frame.h) * fh;
     const w = (box.w / frame.w) * fw;
     const h = (box.h / frame.h) * fh;
+    if (w <= 0 || h <= 0) return '';
     const f = (n) => n.toFixed(1);
     if (shape === 'ellipse') {
         const rx = w / 2, ry = h / 2;
@@ -1817,13 +1824,74 @@ const holePath = ({ box, shape = 'rect', radius = 0 }, frame, fw, fh) => {
 export const holeMask = (holes, frame = { x: 0, y: 0, w: 100, h: 100 }) => {
     if (!holes?.length || !frame?.w || !frame?.h) return {};
     const fw = (frame.w / 100) * CANVAS_W, fh = (frame.h / 100) * CANVAS_H;
-    const d = `M0 0H${fw}V${fh}H0Z` + holes.map(hl => holePath(hl, frame, fw, fh)).join('');
-    const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${fw} ${fh}' preserveAspectRatio='none'><path fill-rule='evenodd' d='${d}'/></svg>`;
+    const paths = holes.map(hl => {
+        const d = holePath(hl, frame, fw, fh);
+        return d ? `<path d='${d}' fill='#000'/>` : '';
+    }).join('');
+    if (!paths) return {};
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${fw} ${fh}' preserveAspectRatio='none'><mask id='hm' x='0' y='0' width='${fw}' height='${fh}' maskUnits='userSpaceOnUse'><rect width='${fw}' height='${fh}' fill='#fff'/>${paths}</mask><rect width='${fw}' height='${fh}' fill='#000' mask='url(#hm)'/></svg>`;
     const url = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
     return {
         WebkitMaskImage: url, maskImage: url,
         WebkitMaskSize: '100% 100%', maskSize: '100% 100%',
         WebkitMaskRepeat: 'no-repeat', maskRepeat: 'no-repeat',
+    };
+};
+
+// Inset a `frame` hole box past its opaque chrome (window titlebar, pixel/brutal
+// bevel/shadow, borders) so the cutout reveals only the inner capture aperture.
+export const frameHoleGeometry = (e, theme) => {
+    const fs = e.frameStyle === '@frame' ? (theme?.frameStyle ?? 'solid') : (e.frameStyle ?? 'solid');
+    const baseRadius = typeof e.borderRadius === 'number' ? e.borderRadius : (theme?.cornerRadius ?? 0);
+    const w = e.borderWidth ?? 4;
+
+    let top = 0, right = 0, bottom = 0, left = 0;
+    let radius = baseRadius;
+
+    if (fs === 'window') {
+        top = 28; right = 2; bottom = 2; left = 2;
+        radius = Math.max(0, baseRadius - 2);
+    } else if (fs === 'neon') {
+        const bw = Math.max(2, w);
+        top = right = bottom = left = 10 + bw;
+        radius = Math.max(0, baseRadius - bw);
+    } else if (fs === 'pixel') {
+        const s = Math.max(5, w + 2);
+        top = left = s;
+        right = bottom = s * 3;
+        radius = 0;
+    } else if (fs === 'brutal') {
+        const bw = Math.max(4, w + 2);
+        top = left = bw;
+        right = bottom = 14 + bw;
+        radius = 0;
+    } else if (fs === 'ornate') {
+        top = right = bottom = left = 8 + Math.max(2, w);
+        radius = 0;
+    } else if (fs === 'tape') {
+        top = right = bottom = left = 10;
+        radius = 0;
+    } else if (fs === 'hud') {
+        top = right = bottom = left = 1;
+        radius = 0;
+    } else if (fs === 'solid' || fs === 'glow' || fs === 'gradient') {
+        top = right = bottom = left = Math.max(0, w);
+        radius = Math.max(0, baseRadius - Math.max(0, w));
+    } else if (fs === 'rec' || fs === 'none') {
+        radius = 0;
+    }
+
+    const dxL = (left / CANVAS_W) * 100;
+    const dxR = (right / CANVAS_W) * 100;
+    const dyT = (top / CANVAS_H) * 100;
+    const dyB = (bottom / CANVAS_H) * 100;
+    const bw = Math.max(0, e.box.w - dxL - dxR);
+    const bh = Math.max(0, e.box.h - dyT - dyB);
+
+    return {
+        box: { x: e.box.x + dxL, y: e.box.y + dyT, w: bw, h: bh },
+        shape: 'rect',
+        radius,
     };
 };
 
@@ -1834,8 +1902,8 @@ const CAM_SHAPE = { circle: 'ellipse', hexagon: 'hexagon', diamond: 'diamond' };
 export const sceneHoles = ({ boxes = {}, boxVisibility = {}, camStyles = {}, elements = [] }, theme) => [
     ...CAM_SLOTS.filter(id => boxVisibility[id] && boxes[id]).map(id => {
         const cs = camStyles[id] ?? {};
-        return { box: boxes[id], shape: CAM_SHAPE[cs.frame] ?? 'rect', radius: cs.frame && cs.frame !== 'none' ? (cs.radius ?? 14) : (theme?.cornerRadius ?? 0) };
+        return { box: boxes[id], shape: CAM_SHAPE[cs.frame] ?? 'rect', radius: cs.frame && cs.frame !== 'none' ? (cs.radius ?? 14) : 0 };
     }),
     ...elements.filter(e => e.type === 'frame' && e.hole && !e.hidden && e.box)
-        .map(e => ({ box: e.box, shape: 'rect', radius: typeof e.borderRadius === 'number' ? e.borderRadius : (theme?.cornerRadius ?? 0) })),
+        .map(e => frameHoleGeometry(e, theme)),
 ];

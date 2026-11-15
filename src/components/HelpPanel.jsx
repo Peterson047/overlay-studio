@@ -1,21 +1,19 @@
 import { motion } from 'framer-motion';
 import { ChevronUp, Eye, Film, GripHorizontal, HelpCircle, Home, LayoutGrid, Pencil, Play, Plus, RotateCcw, Save, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
-import { CONTACT_EMAIL } from '../config';
 
 // In-app guide to the studio: what each dock button does, what you can do in
 // edit mode, and how to get the overlay into OBS. Opened from the "?" in the
 // dock / edit header, and once automatically on a first visit (see OverlayLayout).
 
-const REQUEST_URL = 'https://github.com/abhayraghuwanshi/overlay-studio/issues/new/choose';
 
 // Lookalike of the real dock / header button, so the guide reads "this one".
 const Key = ({ children, accent }) => (
     <span style={{
         display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 7, flexShrink: 0,
         fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1, lineHeight: 1, whiteSpace: 'nowrap',
-        border: `1px solid ${accent ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.12)'}`,
-        background: accent ? 'rgba(79,70,229,0.45)' : 'rgba(255,255,255,0.04)',
+        border: `1px solid ${accent ? 'rgba(255,121,86,0.5)' : 'rgba(255,255,255,0.12)'}`,
+        background: accent ? 'rgba(242,96,56,0.45)' : 'rgba(255,255,255,0.04)',
         color: accent ? '#fff' : 'rgba(255,255,255,0.7)',
     }}>
         {children}
@@ -34,7 +32,7 @@ const Row = ({ k, title, children }) => (
 
 const Step = ({ n, children }) => (
     <div style={{ display: 'flex', gap: 12, padding: '11px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-        <span style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(79,70,229,0.45)', border: '1px solid rgba(99,102,241,0.5)', color: '#fff', fontSize: 10, fontFamily: 'monospace' }}>{n}</span>
+        <span style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(242,96,56,0.45)', border: '1px solid rgba(255,121,86,0.5)', color: '#fff', fontSize: 10, fontFamily: 'monospace' }}>{n}</span>
         <div style={{ fontSize: 11.5, lineHeight: 1.6, color: 'rgba(255,255,255,0.65)', paddingTop: 2 }}>{children}</div>
     </div>
 );
@@ -48,7 +46,7 @@ const Dock = () => (
         </p>
         <div style={{ fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1.5, color: 'rgba(255,255,255,0.35)', padding: '8px 0 2px' }}>Tools</div>
         <Row k={<Key><Home size={11} /></Key>} title="Home">
-            Back to the Overlay Studio home page. Your overlay stays saved.
+            Back to the qorpStreamer home page. Your overlay stays saved.
         </Row>
         <Row k={<Key><Pencil size={11} /></Key>} title="Edit layout">
             Opens the editor: add, move and resize things on the canvas. See the <B>Edit mode</B> tab.
@@ -167,13 +165,7 @@ const HelpPanel = ({ onClose, initialTab = 'dock' }) => {
                     <Body />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-                    <a href={REQUEST_URL} target="_blank" rel="noreferrer" style={{ fontSize: 10.5, fontFamily: 'monospace', color: '#a5b4fc', textDecoration: 'none' }}>
-                        Missing something? Request it ↗
-                    </a>
-                    <a href={`mailto:${CONTACT_EMAIL}?subject=Custom%20stream%20overlay`} style={{ fontSize: 10.5, fontFamily: 'monospace', color: 'rgba(255,255,255,0.5)', textDecoration: 'none' }}>
-                        Custom work: {CONTACT_EMAIL}
-                    </a>
-                    <button onClick={onClose} style={{ padding: '6px 14px', borderRadius: 7, cursor: 'pointer', background: 'rgba(79,70,229,0.5)', border: '1px solid rgba(99,102,241,0.5)', color: '#fff', fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1 }}>
+                    <button onClick={onClose} style={{ padding: '6px 14px', borderRadius: 7, cursor: 'pointer', background: 'rgba(242,96,56,0.5)', border: '1px solid rgba(255,121,86,0.5)', color: '#fff', fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1 }}>
                         Got it
                     </button>
                 </div>

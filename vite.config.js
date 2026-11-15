@@ -4,46 +4,123 @@ import path from 'node:path'
 import { defineConfig, loadEnv } from 'vite'
 import { PORTS } from './ports.config.js'
 import { SAMPLE_MATCHES, fetchMatches } from './scores.data.js'
+import {
+  applyLayoutWrite,
+  buildLayoutGetResponse,
+  formatVer,
+  newTag,
+  roomOf,
+} from './layout.store.js'
 
 // Dev-only stand-in for the Vercel serverless function `api/layout.js`. Vite's
 // dev server doesn't run `/api` functions, so without this every save 404s and
-// state is lost on reload. This middleware mirrors the function's behaviour but
-// persists to a local JSON file (per `room`) — so `npm run dev` works fully
-// offline, no Upstash/Vercel needed. Production still uses api/layout.js.
+// state is lost on reload. This middleware mirrors the function's behaviour
+// (`?v=` 204s, `<design>.<live>` versions, `_liveOnly`, `elementPatch`,
+// `livePatch`, serialized writes) using a local JSON file (per `room`).
 function localLayoutApi() {
   const file = path.resolve('.dev-layouts.json')
   const read = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return {} } }
   const write = (data) => { try { fs.writeFileSync(file, JSON.stringify(data, null, 2)) } catch { /* ignore */ } }
-  const roomOf = (url) => {
-    const raw = new URL(url || '/', 'http://localhost').searchParams.get('room') || 'default'
-    return raw.slice(0, 64).replace(/[^\w.-]/g, '_')
-  }
+  let writeChain = Promise.resolve()
+
   return {
     name: 'local-layout-api',
     configureServer(server) {
-      server.middlewares.use('/api/layout', (req, res, next) => {
+      server.middlewares.use('/api/layout', async (req, res, next) => {
         res.setHeader('Access-Control-Allow-Origin', '*')
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+        res.setHeader('Cache-Control', 'no-store')
         if (req.method === 'OPTIONS') { res.statusCode = 204; return res.end() }
 
-        const store = read()
-        const room = roomOf(req.originalUrl || req.url)
+        const parsedUrl = new URL(req.originalUrl || req.url || '/', 'http://localhost')
+        const room = roomOf(parsedUrl.searchParams.get('room'))
 
         if (req.method === 'GET') {
+          const store = read()
+          store.__ver ??= {}
+          store.__live ??= {}
+          store.__lib ??= {}
+
+          let ver = store.__ver[room]
+          if (!ver) {
+            ver = formatVer(newTag('d'), newTag('l'))
+            store.__ver[room] = ver
+            write(store)
+          }
+
+          const lite = parsedUrl.searchParams.has('lite')
+          const reqVer = parsedUrl.searchParams.get('v')
+
+          const result = await buildLayoutGetResponse({
+            reqVer,
+            curVer: String(ver),
+            lite,
+            isShared: false,
+            getMain: async () => {
+              const raw = store[room]
+              if (raw && 'layouts' in raw) {
+                const { layouts, ...rest } = raw
+                if (store.__lib[room] === undefined) store.__lib[room] = layouts ?? []
+                store[room] = rest
+                write(store)
+                return rest
+              }
+              return raw || {}
+            },
+            getLive: async () => store.__live[room] || {},
+            getLib: async () => store.__lib[room] ?? store[room]?.layouts,
+          })
+
+          if (result.status === 204) {
+            res.statusCode = 204
+            return res.end()
+          }
           res.setHeader('Content-Type', 'application/json')
-          return res.end(JSON.stringify(store[room] || {}))
+          return res.end(JSON.stringify(result.body))
         }
 
         if (req.method === 'POST') {
           let body = ''
           req.on('data', c => { body += c })
           req.on('end', () => {
-            let data = {}
-            try { data = JSON.parse(body || '{}') } catch { /* ignore */ }
-            const { _clientId, ...patch } = data
-            store[room] = { ...(store[room] || {}), ...patch }
-            write(store)
-            res.setHeader('Content-Type', 'application/json')
-            res.end(JSON.stringify({ ok: true }))
+            writeChain = writeChain.then(() => {
+              let data = {}
+              try { data = JSON.parse(body || '{}') } catch { /* ignore */ }
+              const store = read()
+              store.__ver ??= {}
+              store.__live ??= {}
+              store.__lib ??= {}
+
+              const plan = applyLayoutWrite(
+                {
+                  existingMain: store[room] || {},
+                  existingLib: store.__lib[room],
+                  existingLive: store.__live[room],
+                  curVer: store.__ver[room] || '',
+                },
+                data,
+                { isShared: false, nowMs: Date.now() },
+              )
+
+              if (plan.writeMain) store[room] = plan.nextMain
+              if (plan.writeLib) store.__lib[room] = plan.nextLib
+              if (plan.writeLive) store.__live[room] = plan.nextLive
+              store.__ver[room] = plan.nextVer
+              write(store)
+
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({
+                ok: true,
+                _v: plan.nextVer,
+                serverNow: plan.nowMs,
+                ...(plan.writeLive ? { live: plan.nextLive } : {}),
+              }))
+            }).catch((err) => {
+              res.statusCode = 500
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ error: err.message }))
+            })
           })
           return
         }
@@ -61,19 +138,31 @@ function localLayoutApi() {
 function localScoresApi(token, competition) {
   let cache = null // { at, payload } — shared 10s snapshot, mirrors api/scores.js KV cache
   const TTL = 10_000
+  const SAMPLE_UPDATED_AT = 1
   return {
     name: 'local-scores-api',
     configureServer(server) {
       server.middlewares.use('/api/scores', async (req, res, next) => {
         res.setHeader('Access-Control-Allow-Origin', '*')
+        res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+        res.setHeader('Cache-Control', 'no-store')
         if (req.method === 'OPTIONS') { res.statusCode = 204; return res.end() }
         if (req.method !== 'GET') return next()
-        res.setHeader('Content-Type', 'application/json')
+        const parsedUrl = new URL(req.originalUrl || req.url || '/', 'http://localhost')
+        const clientVer = parsedUrl.searchParams.get('v') || ''
         if (!token) {
-          return res.end(JSON.stringify({ configured: false, updatedAt: Date.now(), matches: SAMPLE_MATCHES }))
+          if (clientVer === String(SAMPLE_UPDATED_AT)) { res.statusCode = 204; return res.end() }
+          res.setHeader('Content-Type', 'application/json')
+          return res.end(JSON.stringify({ configured: false, updatedAt: SAMPLE_UPDATED_AT, matches: SAMPLE_MATCHES }))
         }
         const now = Date.now()
-        if (cache && now - cache.at < TTL) return res.end(JSON.stringify(cache.payload))
+        if (cache && now - cache.at < TTL) {
+          if (clientVer && String(cache.payload.updatedAt) === clientVer) { res.statusCode = 204; return res.end() }
+          res.setHeader('Content-Type', 'application/json')
+          return res.end(JSON.stringify(cache.payload))
+        }
+        res.setHeader('Content-Type', 'application/json')
         try {
           const matches = await fetchMatches(token, competition)
           const payload = { configured: true, updatedAt: now, matches }

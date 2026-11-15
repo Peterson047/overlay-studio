@@ -1,5 +1,5 @@
 /**
- * Search keywords and landing pages for Overlay Studio.
+ * Search keywords and landing pages for qorpStreamer.
  *
  * One place for what we want to rank for, so the landing pages, sitemap and
  * meta tags all read from the same list. Each page targets ONE primary
@@ -21,12 +21,11 @@
 export const REVIEWED = '2026-11-09';
 
 export const SITE = {
-    host: 'https://streamoverlay.kazekit.com',
+    host: process.env.SITE_URL?.replace(/\/+$/, '') || '',
     // Say the brand the same way everywhere so Google ties the name to this
-    // site, not to other tools called "Overlay Studio".
-    brand: 'Overlay Studio',
-    brandLong: 'Overlay Studio by KazeKit',
-    github: 'https://github.com/abhayraghuwanshi/overlay-studio',
+    // site, not to other tools called "qorpStreamer".
+    brand: 'qorpStreamer',
+    brandLong: 'qorpStreamer',
 };
 
 // Brand searches we should own. These already show up in Search Console with
@@ -36,7 +35,6 @@ export const BRAND_KEYWORDS = [
     'overlaystudio',
     'overlay studio github',
     'overlay studio obs',
-    'kazekit overlay',
 ];
 
 // Homepage targets — broad, high-intent "I want a tool" searches.
@@ -286,7 +284,7 @@ export const PAGES = [
     {
         slug: 'guides/streamlabs-overlay-setup',
         h1: 'How to add an overlay to Streamlabs Desktop',
-        intro: 'Streamlabs Desktop takes web overlays as a browser source too. Here\'s how to add an Overlay Studio link and size it correctly.',
+        intro: 'Streamlabs Desktop takes web overlays as a browser source too. Here\'s how to add a qorpStreamer link and size it correctly.',
         primary: 'how to add overlay to streamlabs',
         secondary: ['streamlabs browser source'],
         priority: 2, active: true,
@@ -294,7 +292,7 @@ export const PAGES = [
     {
         slug: 'guides/discord-streamkit-alternative',
         h1: 'A Discord StreamKit overlay alternative',
-        intro: 'Discord StreamKit shows who\'s talking in your voice channel. If you want a complete stream overlay with cams, goals, timers and scenes around it, here\'s how Overlay Studio fits next to it.',
+        intro: 'Discord StreamKit shows who\'s talking in your voice channel. If you want a complete stream overlay with cams, goals, timers and scenes around it, here\'s how qorpStreamer fits next to it.',
         primary: 'discord streamkit overlay alternative',
         secondary: ['streamkit overlay', 'obs streamkit'],
         evidence: ['search-console'],

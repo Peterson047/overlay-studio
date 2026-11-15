@@ -3,13 +3,130 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 
 const OBSContext = createContext(null);
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useOBS = () => useContext(OBSContext);
 
 const RETRY_INTERVAL = 5000; // ms between reconnect attempts
+const CONFIG_STORAGE_KEY = 'obs_ws_config';
+const CAPTURE_SCALED_KEY = 'obs_capture_scaled';
+const BASELINE_STORAGE_KEY = 'obs_transform_baselines';
+const DEFAULT_URLS = ['ws://127.0.0.1:4455', 'ws://localhost:4455'];
 
 // Input kinds that are physical cameras (dshow = Windows, v4l2 = Linux,
-// av_capture/avcapture = macOS).
-const CAMERA_KIND = /dshow|v4l2|av_capture|avcapture|video_capture|camera/i;
+// av_capture/avcapture = macOS). Exclude screen/window/desktop captures so
+// PipeWire Wayland captures (e.g. pipewire-screen-capture-source) are never
+// mistaken for a webcam.
+const CAMERA_KIND = /dshow|v4l2|av_capture|avcapture|video_capture|camera|pipewire[-_]?camera|droidcam|ivcam/i;
+const NON_CAMERA_KIND = /screen|desktop|window|monitor|display|game|xshm|xcomposite|browser|image|color|text|wasapi|pulse|coreaudio|alsa|jack|ffmpeg_source|vlc_source|slideshow|syphon|group|scene/i;
+const EXPLICIT_CAMERA_NAME = /(?:^|[^a-z0-9])(web ?cam|face ?cam|hand ?cam|room ?cam|cam ?link|stream ?cam|camera|c[aâ]mera|cam|face)(?:$|[^a-z])/i;
+const NON_CAMERA_NAME = /(?:^|[^a-z0-9])(game ?capture|capture ?card|placa de captura|captura de (?:jogo|tela|janela|monitor|display)|desktop|tela|monitor|display|screen|janela|window|game|jogo|console|elgato|avermedia|magewell|ps4|ps5|xbox|switch|hdmi)(?:$|[^a-z0-9])|(?:^|[^a-z0-9])(?:hd|4k) ?60/i;
+
+const CAPTURE_KIND = /game_capture|window_capture|monitor_capture|display_capture|screen_capture|desktop_capture|pipewire[-_]?(screen|desktop|window)|xshm|xcomposite|macos[-_]?screen|sck_video/i;
+const CAPTURE_NAME = /(?:^|[^a-z0-9])(game|jogo|desktop|screen|tela|monitor|window|janela|display|capture|captura|console|elgato|avermedia|magewell|ps4|ps5|xbox|switch|hdmi)(?:$|[^a-z0-9])|(?:^|[^a-z0-9])(?:hd|4k) ?60/i;
+const NON_CAPTURE_KIND = /wasapi_|pulse_|coreaudio_|alsa_|jack|ffmpeg_source|vlc_source|image_source|slideshow|text_|color_source|browser_source|ndi_source|syphon|(?:^|[_-])(?:group|scene)(?:$|[_-])/i;
+
+const isCameraItem = (name, kind) => {
+    const n = name ?? '';
+    const k = kind ?? '';
+    if (NON_CAMERA_KIND.test(k)) return false;
+    // Explicit cam/webcam/face/cam link names win even on capture-card brands (e.g. Elgato Cam Link / Facecam).
+    if (EXPLICIT_CAMERA_NAME.test(n)) return true;
+    // Exclude capture cards & screen/console names so dshow/v4l2/av_capture cards aren't mistaken for webcams.
+    if (NON_CAMERA_NAME.test(n)) return false;
+    return CAMERA_KIND.test(k);
+};
+
+const isCaptureItem = (name, kind) => {
+    const n = name ?? '';
+    const k = kind ?? '';
+    if (isCameraItem(n, k)) return false;
+    if (NON_CAPTURE_KIND.test(k)) return false;
+    return CAPTURE_KIND.test(k) || CAPTURE_NAME.test(n);
+};
+
+const findCaptureHoles = (elements = []) =>
+    elements.filter((e) => e?.type === 'frame' && e?.hole && !e?.hidden && e?.box);
+
+const sourceKey = (sceneName, sceneItemId, sourceName) =>
+    `${sceneName}::${sceneItemId ?? ''}::${sourceName}`;
+
+const isLikelyOverlayFittedCapture = (t, baseWidth, baseHeight) =>
+    Boolean(
+        t &&
+        t.boundsType === 'OBS_BOUNDS_SCALE_INNER' &&
+        (t.alignment === 5 || t.alignment === undefined) &&
+        t.cropToBounds === false &&
+        Number(t.cropLeft ?? 0) === 0 &&
+        Number(t.cropRight ?? 0) === 0 &&
+        Number(t.cropTop ?? 0) === 0 &&
+        Number(t.cropBottom ?? 0) === 0 &&
+        Number(t.rotation ?? 0) === 0 &&
+        Number(t.boundsWidth ?? 0) > 0 &&
+        Number(t.boundsHeight ?? 0) > 0 &&
+        (Number(t.boundsWidth) < baseWidth - 4 || Number(t.boundsHeight) < baseHeight - 4),
+    );
+
+const readJsonMap = (storageKey) => {
+    try {
+        const raw = localStorage.getItem(storageKey);
+        if (!raw || raw === '1') return {};
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+        return {};
+    }
+};
+
+const writeJsonMap = (storageKey, map) => {
+    try {
+        if (map && Object.keys(map).length > 0) localStorage.setItem(storageKey, JSON.stringify(map));
+        else localStorage.removeItem(storageKey);
+    } catch {
+        // Ignore storage errors
+    }
+};
+
+const loadObsConfig = () => {
+    try {
+        const raw = localStorage.getItem(CONFIG_STORAGE_KEY);
+        if (!raw) return { url: '', password: '' };
+        const parsed = JSON.parse(raw);
+        return {
+            url: typeof parsed?.url === 'string' ? parsed.url : '',
+            password: typeof parsed?.password === 'string' ? parsed.password : '',
+        };
+    } catch {
+        return { url: '', password: '' };
+    }
+};
+
+const normalizeWsUrl = (raw) => {
+    const trimmed = (raw ?? '').trim();
+    if (!trimmed) return '';
+    const withScheme = /^wss?:\/\//i.test(trimmed) ? trimmed : `ws://${trimmed}`;
+    try {
+        const parsed = new URL(withScheme);
+        if (!parsed.port) parsed.port = '4455';
+        return parsed.toString().replace(/\/$/, '');
+    } catch {
+        return withScheme;
+    }
+};
+
+const classifyObsError = (err, attemptedUrl) => {
+    const code = err?.code ?? null;
+    const message = String(err?.message ?? err ?? 'Erro desconhecido');
+    if (code === 4009 || /auth|password|authentication/i.test(message)) {
+        return { kind: 'auth', code: code ?? 4009, message, url: attemptedUrl };
+    }
+    if (err?.name === 'SecurityError' || /mixed content|insecure websocket/i.test(message)) {
+        return { kind: 'mixed-content', code, message, url: attemptedUrl };
+    }
+    if (code === 1006 || /ECONNREFUSED|timeout|failed|network/i.test(message) || !code) {
+        return { kind: 'unreachable', code: code ?? 1006, message, url: attemptedUrl };
+    }
+    return { kind: 'other', code, message, url: attemptedUrl };
+};
 
 // Map OBS camera sources to overlay cam slots. Source names win when they hint
 // at a slot ("hand cam", "room cam", "face cam"); any remaining cameras fill
@@ -36,16 +153,454 @@ const assignCamSlots = (cams) => {
     return out;
 };
 
+const FULLSCREEN_BOX = { x: 0, y: 0, w: 100, h: 100 };
+
+const extractBaseline = (t) => {
+    if (!t || typeof t !== 'object') return null;
+    const out = {
+        cropLeft: Number(t.cropLeft ?? 0),
+        cropRight: Number(t.cropRight ?? 0),
+        cropTop: Number(t.cropTop ?? 0),
+        cropBottom: Number(t.cropBottom ?? 0),
+        rotation: Number(t.rotation ?? 0),
+    };
+    if (typeof t.boundsType === 'string') {
+        out.boundsType = t.boundsType;
+        out.positionX = Number(t.positionX ?? 0);
+        out.positionY = Number(t.positionY ?? 0);
+        out.alignment = t.alignment ?? 5;
+        out.boundsAlignment = t.boundsAlignment ?? 0;
+        out.boundsWidth = Number(t.boundsWidth ?? 0);
+        out.boundsHeight = Number(t.boundsHeight ?? 0);
+        out.scaleX = Number(t.scaleX ?? 1);
+        out.scaleY = Number(t.scaleY ?? 1);
+        if (typeof t.cropToBounds === 'boolean') out.cropToBounds = t.cropToBounds;
+    }
+    return out;
+};
+
+const getSceneItemTransformSafe = async (obs, sceneName, sceneItemId, fallbackTransform) => {
+    try {
+        const res = await obs.call('GetSceneItemTransform', { sceneName, sceneItemId });
+        if (res?.sceneItemTransform) return res.sceneItemTransform;
+    } catch {
+        // Fall back to transform attached to GetSceneItemList item if available.
+    }
+    return fallbackTransform ?? null;
+};
+
+const setSceneItemTransformSafe = async (obs, sceneName, sceneItemId, sceneItemTransform) => {
+    try {
+        await obs.call('SetSceneItemTransform', {
+            sceneName,
+            sceneItemId,
+            sceneItemTransform,
+        });
+    } catch (err) {
+        if ('cropToBounds' in sceneItemTransform) {
+            // cropToBounds needs OBS 30.2+ — retry without it on older OBS.
+            const { cropToBounds: _c, ...legacy } = sceneItemTransform;
+            await obs.call('SetSceneItemTransform', {
+                sceneName,
+                sceneItemId,
+                sceneItemTransform: legacy,
+            });
+            return;
+        }
+        throw err;
+    }
+};
+
+const applyBoundsTransform = async (
+    obs,
+    sceneName,
+    sceneItemId,
+    box,
+    baseWidth,
+    baseHeight,
+    { fill, sourceName, key: explicitKey, baselinesMap, captureScaledMap, saveBaselines, existingTransform } = {},
+) => {
+    const key = explicitKey || sourceKey(sceneName, sceneItemId, sourceName);
+    if (sourceName && baselinesMap) {
+        if (!baselinesMap[key]) {
+            const orig = await getSceneItemTransformSafe(obs, sceneName, sceneItemId, existingTransform);
+            const alreadyScaledByUs = !!captureScaledMap?.[key];
+            if (!fill && (alreadyScaledByUs || isLikelyOverlayFittedCapture(orig, baseWidth, baseHeight))) {
+                // Never snapshot an already overlay-shrunk box (e.g. after a reload or from
+                // another Browser Source session) as the user's "original" fullscreen baseline.
+                baselinesMap[key] = {
+                    boundsType: 'OBS_BOUNDS_SCALE_INNER',
+                    positionX: 0,
+                    positionY: 0,
+                    alignment: 5,
+                    boundsAlignment: 0,
+                    boundsWidth: Math.max(1, baseWidth),
+                    boundsHeight: Math.max(1, baseHeight),
+                    cropToBounds: false,
+                    cropLeft: 0,
+                    cropRight: 0,
+                    cropTop: 0,
+                    cropBottom: 0,
+                    rotation: 0,
+                };
+                saveBaselines?.();
+            } else {
+                const baseline = extractBaseline(orig);
+                if (baseline) {
+                    baselinesMap[key] = baseline;
+                    saveBaselines?.();
+                }
+            }
+        }
+    }
+
+    const sceneItemTransform = {
+        positionX: (box.x / 100) * baseWidth,
+        positionY: (box.y / 100) * baseHeight,
+        alignment: 5, // top-left anchor → position == box origin
+        // Cameras fill-crop; game/desktop windows fit inside without cropping.
+        boundsType: fill ? 'OBS_BOUNDS_SCALE_OUTER' : 'OBS_BOUNDS_SCALE_INNER',
+        boundsAlignment: 0,
+        boundsWidth: Math.max(1, (box.w / 100) * baseWidth),
+        boundsHeight: Math.max(1, (box.h / 100) * baseHeight),
+        cropToBounds: fill,
+        cropLeft: 0,
+        cropRight: 0,
+        cropTop: 0,
+        cropBottom: 0,
+        rotation: 0,
+    };
+    await setSceneItemTransformSafe(obs, sceneName, sceneItemId, sceneItemTransform);
+};
+
+const restoreItemBaseline = async (
+    obs,
+    sceneName,
+    sceneItemId,
+    sourceName,
+    { isCapture = false, key: explicitKey, existingTransform, baseWidth = 1920, baseHeight = 1080, baselinesMap, captureScaledMap, saveState } = {},
+) => {
+    if (!sourceName) return false;
+    const key = explicitKey || sourceKey(sceneName, sceneItemId, sourceName);
+    const legacyKey = `${sceneName}::${sourceName}`;
+    const saved = baselinesMap?.[key] ?? baselinesMap?.[legacyKey];
+    const wasScaled = !!(captureScaledMap?.[key] || captureScaledMap?.[legacyKey]);
+
+    let liveTransform = existingTransform ?? null;
+    if (isCapture && !saved && !wasScaled) {
+        liveTransform = await getSceneItemTransformSafe(obs, sceneName, sceneItemId, existingTransform);
+        if (!isLikelyOverlayFittedCapture(liveTransform, baseWidth, baseHeight)) {
+            return false;
+        }
+    } else if (!saved && !(isCapture && wasScaled)) {
+        return false;
+    }
+
+    const cropRotation = {
+        cropLeft: saved?.cropLeft ?? 0,
+        cropRight: saved?.cropRight ?? 0,
+        cropTop: saved?.cropTop ?? 0,
+        cropBottom: saved?.cropBottom ?? 0,
+        rotation: saved?.rotation ?? 0,
+    };
+
+    const fullscreenRestore = {
+        positionX: (FULLSCREEN_BOX.x / 100) * baseWidth,
+        positionY: (FULLSCREEN_BOX.y / 100) * baseHeight,
+        alignment: 5,
+        boundsType: 'OBS_BOUNDS_SCALE_INNER',
+        boundsAlignment: 0,
+        boundsWidth: Math.max(1, baseWidth),
+        boundsHeight: Math.max(1, baseHeight),
+        cropToBounds: false,
+        ...cropRotation,
+    };
+
+    let restoredOk = false;
+    try {
+        if (isCapture) {
+            if (saved && typeof saved.boundsType === 'string') {
+                const restoreTransform = {
+                    alignment: saved.alignment ?? 5,
+                    positionX: saved.positionX ?? 0,
+                    positionY: saved.positionY ?? 0,
+                    boundsType: saved.boundsType,
+                    boundsAlignment: saved.boundsAlignment ?? 0,
+                    ...cropRotation,
+                };
+                if (saved.boundsType === 'OBS_BOUNDS_NONE') {
+                    if (typeof saved.scaleX === 'number' && saved.scaleX > 0) restoreTransform.scaleX = saved.scaleX;
+                    if (typeof saved.scaleY === 'number' && saved.scaleY > 0) restoreTransform.scaleY = saved.scaleY;
+                } else {
+                    restoreTransform.boundsWidth = Math.max(1, saved.boundsWidth || baseWidth);
+                    restoreTransform.boundsHeight = Math.max(1, saved.boundsHeight || baseHeight);
+                    if (typeof saved.cropToBounds === 'boolean') restoreTransform.cropToBounds = saved.cropToBounds;
+                }
+                try {
+                    await setSceneItemTransformSafe(obs, sceneName, sceneItemId, restoreTransform);
+                    restoredOk = true;
+                } catch {
+                    await setSceneItemTransformSafe(obs, sceneName, sceneItemId, fullscreenRestore);
+                    restoredOk = true;
+                }
+            } else {
+                await setSceneItemTransformSafe(obs, sceneName, sceneItemId, fullscreenRestore);
+                restoredOk = true;
+            }
+        } else if (saved) {
+            await setSceneItemTransformSafe(obs, sceneName, sceneItemId, cropRotation);
+            restoredOk = true;
+        }
+    } finally {
+        if (restoredOk) {
+            if (baselinesMap) {
+                delete baselinesMap[key];
+                delete baselinesMap[legacyKey];
+            }
+            if (captureScaledMap) {
+                delete captureScaledMap[key];
+                delete captureScaledMap[legacyKey];
+            }
+            saveState?.();
+        }
+    }
+    return restoredOk;
+};
+
+const assignCaptureHoles = (captures, captureHoles) => {
+    const assignments = new Map();
+    if (!captureHoles.length || !captures.length) return assignments;
+
+    // Prefer enabled capture items so disabled backup sources don't steal open holes.
+    const ordered = [...captures].sort((a, b) => Number(b.sceneItemEnabled !== false) - Number(a.sceneItemEnabled !== false));
+    const usedCaptureKeys = new Set();
+    const captureItemKey = (it) => `${it.targetSceneName || ''}::${it.sceneItemId}`;
+    const openHoles = [];
+
+    for (const hole of captureHoles) {
+        const wanted = typeof hole.captureSource === 'string' ? hole.captureSource.trim() : '';
+        if (!wanted) {
+            openHoles.push(hole);
+            continue;
+        }
+        const lower = wanted.toLowerCase();
+        const match =
+            ordered.find((c) => !usedCaptureKeys.has(captureItemKey(c)) && c.sourceName === wanted) ||
+            ordered.find((c) => !usedCaptureKeys.has(captureItemKey(c)) && (c.sourceName ?? '').trim().toLowerCase() === lower);
+        if (match) {
+            assignments.set(match, hole);
+            usedCaptureKeys.add(captureItemKey(match));
+        }
+    }
+
+    // Strict 1-to-1 assignment for remaining open holes: never cram duplicate/secondary
+    // capture items in the same scene into a single small hole box.
+    const remainingCaptures = ordered.filter((c) => !usedCaptureKeys.has(captureItemKey(c)));
+    for (let i = 0; i < remainingCaptures.length && i < openHoles.length; i++) {
+        assignments.set(remainingCaptures[i], openHoles[i]);
+    }
+
+    return assignments;
+};
+
+const placeCamerasInScene = async (
+    obs,
+    sceneName,
+    targetBoxes,
+    targetVisibility,
+    captureHoles,
+    baseWidth,
+    baseHeight,
+    { skipHide = false, baselinesMap, captureScaledMap, activeFittedMap, saveState } = {},
+) => {
+    const { sceneItems } = await obs.call('GetSceneItemList', { sceneName });
+
+    const cameras = [];
+    const captures = [];
+    const classify = (it, targetSceneName, inGroup) => {
+        if (it?.isGroup) return;
+        const kind = it?.inputKind || (it?.sourceType === 'OBS_SOURCE_TYPE_SCENE' ? 'scene' : '');
+        if (isCameraItem(it?.sourceName, kind)) cameras.push({ ...it, targetSceneName, inGroup });
+        else if (isCaptureItem(it?.sourceName, kind)) captures.push({ ...it, targetSceneName, inGroup });
+    };
+
+    for (const it of sceneItems) {
+        if (!it.isGroup) {
+            classify(it, sceneName, false);
+        } else {
+            try {
+                const { sceneItems: groupItems } = await obs.call('GetGroupSceneItemList', {
+                    sceneName: it.sourceName,
+                });
+                const gCams = groupItems.filter((git) => !git?.isGroup && isCameraItem(git?.sourceName, git?.inputKind || (git?.sourceType === 'OBS_SOURCE_TYPE_SCENE' ? 'scene' : '')));
+                const gCaps = groupItems.filter((git) => !git?.isGroup && !isCameraItem(git?.sourceName, git?.inputKind || '') && isCaptureItem(git?.sourceName, git?.inputKind || (git?.sourceType === 'OBS_SOURCE_TYPE_SCENE' ? 'scene' : '')));
+                // When a group holds only captures (no cameras), scale the group item in THIS
+                // OBS scene instead of reaching inside and mutating the shared group globally.
+                if (gCaps.length > 0 && gCams.length === 0) {
+                    captures.push({ ...it, targetSceneName: sceneName, inGroup: false });
+                } else {
+                    for (const git of groupItems) classify(git, it.sourceName, true);
+                }
+            } catch {
+                // Ignore inaccessible groups
+            }
+        }
+    }
+
+    const bySlot = assignCamSlots(cameras);
+    const matched = [];
+
+    for (const [slot, item] of Object.entries(bySlot)) {
+        const visible = !!targetVisibility?.[slot];
+        const targetScene = item.targetSceneName || sceneName;
+        const key = sourceKey(targetScene, item.sceneItemId, item.sourceName);
+        matched.push({
+            slot,
+            sourceName: item.sourceName,
+            visible,
+            inGroup: !!item.inGroup,
+        });
+        if (!visible) {
+            if (!skipHide) {
+                await obs.call('SetSceneItemEnabled', {
+                    sceneName: targetScene,
+                    sceneItemId: item.sceneItemId,
+                    sceneItemEnabled: false,
+                });
+                await restoreItemBaseline(obs, targetScene, item.sceneItemId, item.sourceName, {
+                    isCapture: false,
+                    key,
+                    existingTransform: item.sceneItemTransform,
+                    baseWidth,
+                    baseHeight,
+                    baselinesMap,
+                    captureScaledMap,
+                    saveState,
+                });
+                activeFittedMap?.delete(key);
+            }
+            continue;
+        }
+        await obs.call('SetSceneItemEnabled', {
+            sceneName: targetScene,
+            sceneItemId: item.sceneItemId,
+            sceneItemEnabled: true,
+        });
+        const b = targetBoxes?.[slot];
+        if (!b) continue;
+        await applyBoundsTransform(obs, targetScene, item.sceneItemId, b, baseWidth, baseHeight, {
+            fill: true,
+            sourceName: item.sourceName,
+            key,
+            baselinesMap,
+            captureScaledMap,
+            saveBaselines: saveState,
+            existingTransform: item.sceneItemTransform,
+        });
+        activeFittedMap?.set(key, {
+            key,
+            sceneName: targetScene,
+            sceneItemId: item.sceneItemId,
+            sourceName: item.sourceName,
+            isCapture: false,
+            baseWidth,
+            baseHeight,
+        });
+    }
+
+    const captureAssignments = assignCaptureHoles(captures, captureHoles);
+    const matchedCaptures = [];
+    for (const item of captures) {
+        const targetScene = item.targetSceneName || sceneName;
+        const key = sourceKey(targetScene, item.sceneItemId, item.sourceName);
+        const hole = captureAssignments.get(item);
+        if (hole) {
+            await applyBoundsTransform(obs, targetScene, item.sceneItemId, hole.box, baseWidth, baseHeight, {
+                fill: false,
+                sourceName: item.sourceName,
+                key,
+                baselinesMap,
+                captureScaledMap,
+                saveBaselines: saveState,
+                existingTransform: item.sceneItemTransform,
+            });
+            if (captureScaledMap) {
+                captureScaledMap[key] = true;
+                saveState?.();
+            }
+            activeFittedMap?.set(key, {
+                key,
+                sceneName: targetScene,
+                sceneItemId: item.sceneItemId,
+                sourceName: item.sourceName,
+                isCapture: true,
+                baseWidth,
+                baseHeight,
+            });
+            matchedCaptures.push({ sourceName: item.sourceName, inGroup: !!item.inGroup });
+        } else if (!skipHide) {
+            await restoreItemBaseline(obs, targetScene, item.sceneItemId, item.sourceName, {
+                isCapture: true,
+                key,
+                existingTransform: item.sceneItemTransform,
+                baseWidth,
+                baseHeight,
+                baselinesMap,
+                captureScaledMap,
+                saveState,
+            });
+            activeFittedMap?.delete(key);
+        }
+    }
+
+    return { matched, matchedCaptures, totalItems: sceneItems.length };
+};
+
 export const OBSProvider = ({ children }) => {
     const [obs] = useState(() => new OBSWebSocket());
     const [isConnected, setIsConnected] = useState(false);
     const [isRecording, setIsRecording] = useState(false);
+    const [obsConfig, setObsConfig] = useState(loadObsConfig);
+    const [connectionError, setConnectionError] = useState(null);
+    const [camStatus, setCamStatus] = useState(null);
+    const [connectNonce, setConnectNonce] = useState(0);
     const retryRef = useRef(null);
     const mountedRef = useRef(true);
     // Mirror isConnected into a ref so placeCameras stays referentially stable
     // (callers keep it in useCallback deps) while still seeing live state.
     const isConnectedRef = useRef(false);
-    isConnectedRef.current = isConnected;
+    const lastPlaceRef = useRef({ boxes: null, visibility: null, elements: undefined });
+    const captureScaledRef = useRef(readJsonMap(CAPTURE_SCALED_KEY));
+    const baselinesRef = useRef(readJsonMap(BASELINE_STORAGE_KEY));
+    const activeFittedRef = useRef(new Map());
+
+    const persistTransformState = useCallback(() => {
+        writeJsonMap(CAPTURE_SCALED_KEY, captureScaledRef.current);
+        writeJsonMap(BASELINE_STORAGE_KEY, baselinesRef.current);
+    }, []);
+
+    useEffect(() => {
+        isConnectedRef.current = isConnected;
+    }, [isConnected]);
+
+    const updateObsConfig = useCallback((patch) => {
+        setObsConfig((prev) => {
+            const next = { ...prev, ...patch };
+            try {
+                localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(next));
+            } catch {
+                // Ignore storage quota / privacy mode failures
+            }
+            return next;
+        });
+        setConnectionError(null);
+        setConnectNonce((n) => n + 1);
+    }, []);
+
+    const reconnect = useCallback(() => {
+        setConnectionError(null);
+        setConnectNonce((n) => n + 1);
+    }, []);
 
     // Auto-place native OBS camera sources to match the overlay's cam boxes.
     // boxes/visibility use the overlay's percent coordinates on its 16:9 canvas;
@@ -53,105 +608,245 @@ export const OBSProvider = ({ children }) => {
     // with fill-crop bounds (so circles/odd aspect frames are filled, overflow
     // cropped), and enable/disable it to match the scene. No-op when OBS isn't
     // connected, so it's always safe to call.
-    const placeCameras = useCallback(async (boxes, visibility) => {
-        if (!isConnectedRef.current) return;
+    const placeCameras = useCallback(async (boxes, visibility, elements, options = {}) => {
+        if (boxes !== undefined || visibility !== undefined || elements !== undefined) {
+            lastPlaceRef.current = {
+                boxes: boxes ?? lastPlaceRef.current.boxes,
+                visibility: visibility ?? lastPlaceRef.current.visibility,
+                elements: elements !== undefined ? elements : lastPlaceRef.current.elements,
+            };
+        }
+        const targetBoxes = boxes ?? lastPlaceRef.current.boxes;
+        const targetVisibility = visibility ?? lastPlaceRef.current.visibility;
+        const targetElements = elements !== undefined ? elements : lastPlaceRef.current.elements;
+        if (!isConnectedRef.current || !targetBoxes) return;
+
+        const { skipHide = false, syncPreview = false } = options ?? {};
+        const captureHoles = findCaptureHoles(targetElements);
+
         try {
             const { baseWidth, baseHeight } = await obs.call('GetVideoSettings');
             const { currentProgramSceneName: sceneName } = await obs.call('GetCurrentProgramScene');
-            const { sceneItems } = await obs.call('GetSceneItemList', { sceneName });
-            const bySlot = assignCamSlots(sceneItems.filter(it => CAMERA_KIND.test(it.inputKind ?? '')));
-            for (const [slot, item] of Object.entries(bySlot)) {
-                const visible = !!visibility?.[slot];
-                await obs.call('SetSceneItemEnabled', {
-                    sceneName, sceneItemId: item.sceneItemId, sceneItemEnabled: visible,
-                });
-                const b = boxes?.[slot];
-                if (!visible || !b) continue;
-                const sceneItemTransform = {
-                    positionX: (b.x / 100) * baseWidth,
-                    positionY: (b.y / 100) * baseHeight,
-                    alignment: 5, // top-left anchor → position == box origin
-                    boundsType: 'OBS_BOUNDS_SCALE_OUTER', // fill the frame
-                    boundsAlignment: 0,
-                    boundsWidth: Math.max(1, (b.w / 100) * baseWidth),
-                    boundsHeight: Math.max(1, (b.h / 100) * baseHeight),
-                    cropToBounds: true,
-                };
-                try {
-                    await obs.call('SetSceneItemTransform', {
-                        sceneName, sceneItemId: item.sceneItemId, sceneItemTransform,
-                    });
-                } catch {
-                    // cropToBounds needs OBS 30.2+ — retry without it on older OBS.
-                    const { cropToBounds: _c, ...legacy } = sceneItemTransform;
-                    await obs.call('SetSceneItemTransform', {
-                        sceneName, sceneItemId: item.sceneItemId, sceneItemTransform: legacy,
-                    });
+
+            let studioModeEnabled = false;
+            let previewSceneName = null;
+            try {
+                const studio = await obs.call('GetStudioModeEnabled');
+                studioModeEnabled = !!studio?.studioModeEnabled;
+                if (studioModeEnabled) {
+                    const prev = await obs.call('GetCurrentPreviewScene');
+                    previewSceneName = prev?.currentPreviewSceneName ?? null;
                 }
+            } catch {
+                // Ignore if Studio Mode query is unsupported
+            }
+
+            const ctxOpts = {
+                skipHide,
+                baselinesMap: baselinesRef.current,
+                captureScaledMap: captureScaledRef.current,
+                activeFittedMap: activeFittedRef.current,
+                saveState: persistTransformState,
+            };
+
+            const primary = await placeCamerasInScene(
+                obs,
+                sceneName,
+                targetBoxes,
+                targetVisibility,
+                captureHoles,
+                baseWidth,
+                baseHeight,
+                ctxOpts,
+            );
+            // Studio Mode safety: never mutate an unrelated staged Preview scene
+            // automatically; only sync it on explicit Sync OBS requests.
+            if (syncPreview && previewSceneName && previewSceneName !== sceneName) {
+                await placeCamerasInScene(
+                    obs,
+                    previewSceneName,
+                    targetBoxes,
+                    targetVisibility,
+                    captureHoles,
+                    baseWidth,
+                    baseHeight,
+                    ctxOpts,
+                );
+            }
+
+            if (mountedRef.current) {
+                setCamStatus({
+                    sceneName,
+                    previewSceneName,
+                    studioModeEnabled,
+                    matched: primary.matched,
+                    matchedCaptures: primary.matchedCaptures,
+                    hasCaptureHole: captureHoles.length > 0,
+                    totalItems: primary.totalItems,
+                    error: null,
+                });
             }
         } catch (e) {
-            console.warn('[obs] camera auto-place failed:', e?.message ?? e);
+            const errMsg = e?.message ?? String(e);
+            console.warn('[obs] camera auto-place failed:', errMsg);
+            if (mountedRef.current) {
+                setCamStatus((prev) => ({
+                    sceneName: prev?.sceneName ?? '',
+                    matched: prev?.matched ?? [],
+                    totalItems: prev?.totalItems ?? 0,
+                    error: errMsg,
+                }));
+            }
         }
-    }, [obs]);
+    }, [obs, persistTransformState]);
 
     useEffect(() => {
         mountedRef.current = true;
+        let cancelled = false;
+        const activeFittedMap = activeFittedRef.current;
+        const baselinesMap = baselinesRef.current;
+        const captureScaledMap = captureScaledRef.current;
         // Guard against overlapping connect attempts. A single failed connection
         // both rejects connect() AND emits ConnectionClosed; without these guards
         // each failure would schedule TWO retries, doubling every interval into a
         // storm of dead WebSockets (ERR_INSUFFICIENT_RESOURCES + memory growth).
         let connecting = false;
 
+        const customUrl = normalizeWsUrl(obsConfig.url);
+        const candidates = customUrl ? [customUrl] : DEFAULT_URLS;
+
         // Only ever one pending retry: clearing first means duplicate callers
         // (catch + ConnectionClosed) collapse to a single scheduled attempt.
         const scheduleRetry = () => {
-            if (!mountedRef.current) return;
+            if (!mountedRef.current || cancelled) return;
             clearTimeout(retryRef.current);
             retryRef.current = setTimeout(connect, RETRY_INTERVAL);
         };
 
         const connect = async () => {
-            if (!mountedRef.current || connecting) return;
+            if (!mountedRef.current || cancelled || connecting) return;
             connecting = true;
-            try {
-                await obs.connect('ws://localhost:4455', '');
-                if (!mountedRef.current) return;
-                setIsConnected(true);
+            let lastErr = null;
+            let lastUrl = candidates[0];
 
-                const status = await obs.call('GetRecordStatus');
-                if (mountedRef.current) setIsRecording(status.outputActive);
-            } catch {
-                // OBS is likely not open — retry silently
-                if (!mountedRef.current) return;
+            try {
+                for (const url of candidates) {
+                    if (!mountedRef.current || cancelled) return;
+                    lastUrl = url;
+                    try {
+                        await obs.connect(url, obsConfig.password || '');
+                        if (!mountedRef.current || cancelled) return;
+                        isConnectedRef.current = true;
+                        setIsConnected(true);
+                        setConnectionError(null);
+
+                        const status = await obs.call('GetRecordStatus');
+                        if (mountedRef.current && !cancelled) setIsRecording(status.outputActive);
+                        if (lastPlaceRef.current.boxes) {
+                            placeCameras(lastPlaceRef.current.boxes, lastPlaceRef.current.visibility);
+                        }
+                        return;
+                    } catch (err) {
+                        lastErr = err;
+                        if (err?.code === 4009) break;
+                    }
+                }
+                if (!mountedRef.current || cancelled) return;
+                isConnectedRef.current = false;
                 setIsConnected(false);
+                setCamStatus(null);
+                setConnectionError(classifyObsError(lastErr, lastUrl));
                 scheduleRetry();
             } finally {
                 connecting = false;
             }
         };
 
-        obs.on('RecordStateChanged', (data) => {
+        const onRecordStateChanged = (data) => {
             setIsRecording(data.outputActive);
-        });
+        };
 
-        obs.on('ConnectionClosed', () => {
-            if (!mountedRef.current) return;
+        const onSceneChanged = () => {
+            if (isConnectedRef.current && lastPlaceRef.current.boxes) {
+                placeCameras(lastPlaceRef.current.boxes, lastPlaceRef.current.visibility);
+            }
+        };
+
+        const onPreviewSceneChanged = (data) => {
+            if (!mountedRef.current || cancelled) return;
+            setCamStatus((prev) => (prev ? { ...prev, previewSceneName: data?.sceneName ?? prev.previewSceneName } : prev));
+        };
+
+        const onConnectionClosed = () => {
+            if (!mountedRef.current || cancelled) return;
+            isConnectedRef.current = false;
             setIsConnected(false);
             setIsRecording(false);
+            setCamStatus(null);
             scheduleRetry();
-        });
+        };
+
+        obs.on('RecordStateChanged', onRecordStateChanged);
+        obs.on('CurrentProgramSceneChanged', onSceneChanged);
+        obs.on('CurrentPreviewSceneChanged', onPreviewSceneChanged);
+        obs.on('StudioModeStateChanged', onSceneChanged);
+        obs.on('ConnectionClosed', onConnectionClosed);
 
         connect();
 
         return () => {
+            cancelled = true;
             mountedRef.current = false;
             clearTimeout(retryRef.current);
-            obs.disconnect();
+            obs.off('RecordStateChanged', onRecordStateChanged);
+            obs.off('CurrentProgramSceneChanged', onSceneChanged);
+            obs.off('CurrentPreviewSceneChanged', onPreviewSceneChanged);
+            obs.off('StudioModeStateChanged', onSceneChanged);
+            obs.off('ConnectionClosed', onConnectionClosed);
+            const wasConnected = isConnectedRef.current;
+            isConnectedRef.current = false;
+            const entries = Array.from(activeFittedMap.values());
+            activeFittedMap.clear();
+            const cleanup = async () => {
+                if (wasConnected && entries.length > 0) {
+                    const restores = entries.map((entry) =>
+                        restoreItemBaseline(obs, entry.sceneName, entry.sceneItemId, entry.sourceName, {
+                            key: entry.key,
+                            isCapture: entry.isCapture,
+                            baseWidth: entry.baseWidth,
+                            baseHeight: entry.baseHeight,
+                            baselinesMap,
+                            captureScaledMap,
+                            saveState: persistTransformState,
+                        }).catch(() => {})
+                    );
+                    await Promise.race([
+                        Promise.allSettled(restores),
+                        new Promise((resolve) => setTimeout(resolve, 600)),
+                    ]);
+                }
+                await obs.disconnect().catch(() => {
+                    // Ignore disconnect errors when socket was never open
+                });
+            };
+            cleanup();
         };
-    }, [obs]);
+    }, [obs, obsConfig.url, obsConfig.password, connectNonce, placeCameras, persistTransformState]);
 
     return (
-        <OBSContext.Provider value={{ obs, isConnected, isRecording, placeCameras }}>
+        <OBSContext.Provider
+            value={{
+                obs,
+                isConnected,
+                isRecording,
+                connectionError,
+                camStatus,
+                obsConfig,
+                updateObsConfig,
+                reconnect,
+                placeCameras,
+            }}
+        >
             {children}
         </OBSContext.Provider>
     );

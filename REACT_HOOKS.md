@@ -45,8 +45,8 @@ setCount(prev => prev + 1);
 
 // Object state — must spread, React won't diff deep
 const [user, setUser] = useState({ name: '', age: 0 });
-setUser(prev => ({ ...prev, name: 'Abhay' })); // ✅
-setUser(prev => { prev.name = 'Abhay'; return prev; }); // ❌ same ref, no re-render
+setUser(prev => ({ ...prev, name: 'Alex' })); // ✅
+setUser(prev => { prev.name = 'Alex'; return prev; }); // ❌ same ref, no re-render
 ```
 
 ---
@@ -532,7 +532,7 @@ const UserContext = createContext(null);
 
 // 2. wrap tree with Provider
 function App() {
-  const [user, setUser] = useState({ name: 'Abhay' });
+  const [user, setUser] = useState({ name: 'Alex' });
   return (
     <UserContext.Provider value={user}>
       <Layout /> {/* no props needed */}

@@ -2,6 +2,7 @@
 // live in the Layers panel; it moved here so each camera shows up only once
 // in the unified layers list.
 
+import { useState } from 'react';
 import { useOBS } from '../context/OBSContext';
 import { CAMERA_FRAMES } from './CameraFrame';
 
@@ -11,10 +12,86 @@ const Label = ({ children }) => (
     </span>
 );
 
+const WS_INPUT_STYLE = {
+    width: '100%',
+    boxSizing: 'border-box',
+    padding: '5px 7px',
+    fontSize: 10,
+    fontFamily: 'monospace',
+    color: '#e5e7eb',
+    background: 'rgba(0,0,0,0.35)',
+    border: '1px solid rgba(255,255,255,0.14)',
+    borderRadius: 4,
+    outline: 'none',
+};
+
+const WS_BTN_STYLE = {
+    fontSize: 9,
+    fontFamily: 'monospace',
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    padding: '4px 8px',
+    borderRadius: 4,
+    cursor: 'pointer',
+    border: '1px solid rgba(255,255,255,0.18)',
+    background: 'rgba(255,255,255,0.08)',
+    color: '#e5e7eb',
+};
+
+const describeObsDisconnect = (connectionError) => {
+    switch (connectionError?.kind) {
+        case 'auth':
+            return {
+                title: 'OBS auth required (4009)',
+                tone: 'error',
+                body: 'OBS WebSocket rejected the connection password. Paste your OBS Server Password below or disable authentication in OBS: Tools → WebSocket Server Settings.',
+            };
+        case 'mixed-content':
+            return {
+                title: 'WebSocket blocked (HTTPS)',
+                tone: 'error',
+                body: 'This page is loaded over HTTPS while OBS uses ws://. Open the overlay on http:// (or provide a wss:// URL below).',
+            };
+        case 'unreachable':
+            return {
+                title: 'OBS WebSocket unreachable',
+                tone: 'warn',
+                body: `Could not reach ${connectionError.url || 'ws://127.0.0.1:4455'}. Confirm OBS Studio is running with Tools → WebSocket Server Settings → Enable WebSocket server on port 4455.`,
+            };
+        default:
+            return {
+                title: 'OBS not connected',
+                tone: 'warn',
+                body: 'Add your webcam as an OBS “Video Capture Device” source behind this overlay. Enable Tools → WebSocket Server Settings → Enable WebSocket server (port 4455).',
+            };
+    }
+};
+
 const CAMERA_LABELS = { faceCam: 'Face Cam', handCam: 'Hand Cam', roomCam: 'Room Cam' };
+
+const POLYGON_PREVIEWS = {
+    hexagon: '25,0 75,0 100,50 75,100 25,100 0,50',
+    diamond: '50,0 100,50 50,100 0,50',
+};
 
 // Tiny visual swatch echoing each frame preset so it's pickable at a glance.
 const FramePreview = ({ id, accent }) => {
+    if (POLYGON_PREVIEWS[id]) {
+        const size = id === 'diamond' ? { width: 20, height: 20 } : { width: 26, height: 18 };
+        return (
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ ...size, overflow: 'visible', display: 'block' }}>
+                <polygon
+                    points={POLYGON_PREVIEWS[id]}
+                    fill="rgba(255,255,255,0.12)"
+                    stroke={accent}
+                    strokeWidth="2"
+                    vectorEffect="non-scaling-stroke"
+                    strokeLinejoin="round"
+                />
+            </svg>
+        );
+    }
     const base = { width: 26, height: 18, background: 'rgba(255,255,255,0.12)', boxSizing: 'border-box' };
     const map = {
         none:     { ...base, borderRadius: 3, border: '1px dashed rgba(255,255,255,0.25)', background: 'transparent' },
@@ -31,12 +108,32 @@ const FramePreview = ({ id, accent }) => {
 const PRESET_ACCENTS = ['#6366f1', '#22d3ee', '#ec4899', '#f59e0b', '#22c55e', '#ffffff'];
 
 const CameraEditor = ({ slot, camStyle = {}, onChangeCamStyle }) => {
-    const { isConnected } = useOBS();
+    const {
+        isConnected,
+        connectionError,
+        camStatus,
+        obsConfig,
+        updateObsConfig,
+        reconnect,
+        placeCameras,
+    } = useOBS();
+    const [showWsConfig, setShowWsConfig] = useState(false);
+    const [wsUrl, setWsUrl] = useState(obsConfig?.url ?? '');
+    const [wsPassword, setWsPassword] = useState(obsConfig?.password ?? '');
     const frame = camStyle.frame ?? 'soft';
     const accent = camStyle.accent ?? '#6366f1';
     const radius = camStyle.radius ?? 14;
-    const usesAccent = ['ring', 'neon', 'gradient', 'circle'].includes(frame);
-    const usesRadius = !['none', 'circle'].includes(frame);
+    const usesAccent = ['ring', 'neon', 'gradient', 'circle', 'hexagon', 'diamond'].includes(frame);
+    const usesRadius = !['none', 'circle', 'hexagon', 'diamond'].includes(frame);
+    const matchedForSlot = camStatus?.matched?.find((m) => m.slot === slot);
+    const disconnectInfo = describeObsDisconnect(connectionError);
+    const wsFormOpen = showWsConfig || (!isConnected && connectionError?.kind === 'auth');
+
+    const handleSaveWs = (e) => {
+        e.preventDefault();
+        updateObsConfig({ url: wsUrl.trim(), password: wsPassword });
+        setShowWsConfig(false);
+    };
 
     return (
         <div style={{
@@ -59,33 +156,160 @@ const CameraEditor = ({ slot, camStyle = {}, onChangeCamStyle }) => {
 
             {/* OBS source hint — the real webcam is a native OBS source behind this
                 frame. When the OBS WebSocket is connected we auto-place that source
-                into the frame; otherwise tell the user how to enable it. */}
+                into the frame; otherwise show exact failure reason & credentials. */}
             {isConnected ? (
                 <div style={{
-                    fontSize: 9, fontFamily: 'monospace', lineHeight: 1.5, color: 'rgba(134,239,172,0.8)',
+                    fontSize: 9, fontFamily: 'monospace', lineHeight: 1.5, color: 'rgba(134,239,172,0.85)',
                     background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)',
-                    borderRadius: 6, padding: '7px 9px',
+                    borderRadius: 6, padding: '7px 9px', display: 'flex', flexDirection: 'column', gap: 5,
                 }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', flexShrink: 0 }} />
-                        OBS connected — auto-place on
-                    </span>
-                    <br />
-                    Your OBS camera source snaps into this frame automatically when you move it or switch scenes. Scenes without a cam hide it.
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', flexShrink: 0 }} />
+                            OBS connected
+                        </span>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                            <button type="button" onClick={() => placeCameras(undefined, undefined, undefined, { syncPreview: true })} style={{ ...WS_BTN_STYLE, color: '#bbf7d0', borderColor: 'rgba(34,197,94,0.35)' }}>
+                                Sync OBS
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setWsUrl(obsConfig?.url ?? '');
+                                    setWsPassword(obsConfig?.password ?? '');
+                                    setShowWsConfig((v) => !v);
+                                }}
+                                style={WS_BTN_STYLE}
+                            >
+                                WS
+                            </button>
+                        </div>
+                    </div>
+
+                    {camStatus?.error ? (
+                        <div style={{ color: '#fca5a5' }}>
+                            Auto-place error: {camStatus.error}
+                        </div>
+                    ) : camStatus && camStatus.matched.length === 0 ? (
+                        <div style={{ color: '#fde047' }}>
+                            No camera source found in OBS scene “{camStatus.sceneName}”. Add a Video Capture Device (or name your source Webcam / Face Cam).
+                        </div>
+                    ) : matchedForSlot ? (
+                        <div>
+                            Scene “{camStatus.sceneName}” → <strong style={{ color: '#dcfce7' }}>{matchedForSlot.sourceName}</strong>
+                            {matchedForSlot.inGroup ? ' (group)' : ''}
+                            {camStatus.studioModeEnabled && (
+                                <div style={{ color: 'rgba(253,224,71,0.8)', marginTop: 3 }}>
+                                    Studio Mode active in OBS: click Transition (or turn off Studio Mode) if Program does not refresh.
+                                </div>
+                            )}
+                        </div>
+                    ) : camStatus ? (
+                        <div style={{ color: 'rgba(255,255,255,0.72)' }}>
+                            No OBS camera assigned to {CAMERA_LABELS[slot] ?? slot}. Matched:{' '}
+                            {camStatus.matched.map((m) => `${m.slot}=${m.sourceName}`).join(', ')}.
+                        </div>
+                    ) : (
+                        <div>
+                            Your OBS camera source snaps into this frame automatically when you move it or switch scenes.
+                        </div>
+                    )}
                 </div>
             ) : (
                 <div style={{
-                    fontSize: 9, fontFamily: 'monospace', lineHeight: 1.5, color: 'rgba(253,224,71,0.75)',
-                    background: 'rgba(234,179,8,0.07)', border: '1px solid rgba(234,179,8,0.25)',
-                    borderRadius: 6, padding: '7px 9px',
+                    fontSize: 9,
+                    fontFamily: 'monospace',
+                    lineHeight: 1.5,
+                    color: disconnectInfo.tone === 'error' ? 'rgba(252,165,165,0.9)' : 'rgba(253,224,71,0.82)',
+                    background: disconnectInfo.tone === 'error' ? 'rgba(239,68,68,0.08)' : 'rgba(234,179,8,0.07)',
+                    border: `1px solid ${disconnectInfo.tone === 'error' ? 'rgba(239,68,68,0.3)' : 'rgba(234,179,8,0.25)'}`,
+                    borderRadius: 6,
+                    padding: '7px 9px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
                 }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#eab308', flexShrink: 0 }} />
-                        OBS not connected
-                    </span>
-                    <br />
-                    Add your webcam as an OBS “Video Capture Device” source behind this overlay. To have it <em>auto-placed</em> into this frame on every scene switch, enable the OBS WebSocket server: <span style={{ color: 'rgba(255,255,255,0.75)' }}>Tools → WebSocket Server Settings → Enable WebSocket server</span>, port <span style={{ color: 'rgba(255,255,255,0.75)' }}>4455</span>, authentication off — the overlay connects automatically.
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
+                            <span
+                                style={{
+                                    width: 6,
+                                    height: 6,
+                                    borderRadius: '50%',
+                                    background: disconnectInfo.tone === 'error' ? '#ef4444' : '#eab308',
+                                    flexShrink: 0,
+                                }}
+                            />
+                            {disconnectInfo.title}
+                        </span>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                            <button type="button" onClick={reconnect} style={WS_BTN_STYLE}>
+                                Retry
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setWsUrl(obsConfig?.url ?? '');
+                                    setWsPassword(obsConfig?.password ?? '');
+                                    setShowWsConfig((v) => !v);
+                                }}
+                                style={WS_BTN_STYLE}
+                            >
+                                {wsFormOpen ? 'Hide' : 'Setup'}
+                            </button>
+                        </div>
+                    </div>
+                    <div>{disconnectInfo.body}</div>
                 </div>
+            )}
+
+            {wsFormOpen && (
+                <form
+                    onSubmit={handleSaveWs}
+                    style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 6,
+                        padding: '7px 9px',
+                        borderRadius: 6,
+                        background: 'rgba(255,255,255,0.03)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                    }}
+                >
+                    <div>
+                        <Label>OBS WebSocket URL (optional)</Label>
+                        <input
+                            type="text"
+                            value={wsUrl}
+                            onChange={(e) => setWsUrl(e.target.value)}
+                            placeholder="ws://127.0.0.1:4455"
+                            style={WS_INPUT_STYLE}
+                        />
+                    </div>
+                    <div>
+                        <Label>OBS Server Password</Label>
+                        <input
+                            type="password"
+                            value={wsPassword}
+                            onChange={(e) => setWsPassword(e.target.value)}
+                            placeholder="Leave blank if auth disabled"
+                            style={WS_INPUT_STYLE}
+                        />
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                        <button
+                            type="submit"
+                            style={{
+                                ...WS_BTN_STYLE,
+                                background: 'rgba(99,102,241,0.28)',
+                                borderColor: 'rgba(99,102,241,0.6)',
+                                color: '#e0e7ff',
+                            }}
+                        >
+                            Save & Connect
+                        </button>
+                    </div>
+                </form>
             )}
 
             <div style={{ height: 1, background: 'rgba(255,255,255,0.08)' }} />

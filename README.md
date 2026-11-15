@@ -1,8 +1,8 @@
-# Overlay Studio
+# qorpStreamer
 
 **A free, browser-based stream overlay editor for OBS.** Design your overlay on a live canvas, then add it to OBS with one link. Nothing to install.
 
-**[▶ Open the studio](https://streamoverlay.kazekit.com/?studio)** · [Website](https://streamoverlay.kazekit.com) · [Request a component](https://github.com/abhayraghuwanshi/overlay-studio/issues/new?template=component_request.yml) · [Report a bug](https://github.com/abhayraghuwanshi/overlay-studio/issues/new?template=bug_report.yml)
+**Fork mantido pela [Qorp](https://qorp.com.br).**
 
 **Works with** YouTube, Twitch, Kick, Facebook Live, X, TikTok LIVE (with a stream key) and any RTMP platform, from OBS Studio, Streamlabs Desktop, XSplit, Meld Studio or any app with a browser source. Multistreaming works too.
 
@@ -28,7 +28,7 @@ If it's useful to you, a ⭐ helps other streamers find it.
 
 ## Quick start (no install)
 
-1. Open **[the studio](https://streamoverlay.kazekit.com/?studio)** and design your overlay.
+1. Open the studio at `/?studio` and design your overlay.
 2. Click **Go Live**. This creates a private room and copies your OBS link.
 3. In OBS: **Sources → + → Browser**, then set:
    - **URL:** paste the link
@@ -49,19 +49,6 @@ If it's useful to you, a ⭐ helps other streamers find it.
 3. Click **OK**. The camera panel in the studio shows a green **OBS connected** badge within a few seconds.
 
 Your webcam must be a **Video Capture Device** source in the same OBS scene as the overlay. With several cameras, put `face`, `hand` or `room` in their OBS source names to choose which frame each one fills.
-
-## Request a component
-
-Missing a widget, theme or layout? [Open a request](https://github.com/abhayraghuwanshi/overlay-studio/issues/new/choose). There's a short form for each:
-
-- 🧩 **Component:** a new widget or element (a poll, chat box, now-playing card…)
-- 🎨 **Theme or layout:** a look, starter layout or scene pack
-- ✨ **Feature:** anything else in the studio
-- 🐞 **Bug:** something broke
-
-You can also click **Missing something? Request a component** in the studio's **Add Layer** panel.
-
-Want a custom overlay, theme or scene pack made for your channel? Email [raghuwanshi.abhay405@gmail.com](mailto:raghuwanshi.abhay405@gmail.com).
 
 ## Running it locally
 

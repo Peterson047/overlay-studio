@@ -1,8 +1,22 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronDown, Layers, Plus, RotateCw, X } from 'lucide-react';
+import { Check, ChevronDown, Layers, Pencil, Plus, RotateCw, X } from 'lucide-react';
 import { useState } from 'react';
-import { track } from '../analytics';
 import { ADD_SECTIONS, BUILTIN_LAYERS, ELEMENT_TYPE_MAP, SHAPE_ELEMENTS } from './elementCatalog';
+
+const MotionDiv = motion.div;
+
+const TRANSITION_OPTIONS = [
+    { value: 'fade', label: 'Fade' },
+    { value: 'fade-dip', label: 'Fade dip' },
+    { value: 'slide-left', label: 'Slide left' },
+    { value: 'slide-right', label: 'Slide right' },
+    { value: 'slide-up', label: 'Slide up' },
+    { value: 'wipe', label: 'Wipe' },
+    { value: 'zoom', label: 'Zoom' },
+    { value: 'none', label: 'Cut (none)' },
+];
+
+const TRANSITION_DURATIONS = [200, 400, 700, 1000];
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -91,22 +105,70 @@ const SceneDot = ({ color }) => (
 // current canvas as a new scene, updates a scene to match the canvas, or
 // deletes one. The "Layouts" link opens the gallery to switch which show (layout)
 // is active.
-const ScenesDropdown = ({ layoutName, scenes = [], activeSceneId, onSwitchScene, onUpdateScene, onDeleteScene, onOpenLayouts }) => {
+const ScenesDropdown = ({
+    layoutName,
+    scenes = [],
+    activeSceneId,
+    onSwitchScene,
+    onSaveScene,
+    onUpdateScene,
+    onRenameScene,
+    onDeleteScene,
+    onOpenLayouts,
+    sceneTransition,
+    onTransitionChange,
+}) => {
     const [open, setOpen] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [saveDraft, setSaveDraft] = useState('');
+    const [renamingId, setRenamingId] = useState(null);
+    const [renameDraft, setRenameDraft] = useState('');
 
     const active = scenes.find(s => s.id === activeSceneId) ?? null;
+    const transition = sceneTransition ?? { type: 'fade', durationMs: 350 };
+    const transitionType = transition.type ?? 'fade';
+    const transitionMs = Math.max(150, Math.min(1200, Number(transition.durationMs ?? 350)));
+    const showTransitionControls = !!(onTransitionChange || sceneTransition);
+
+    const submitSaveScene = (e) => {
+        e?.preventDefault?.();
+        if (!onSaveScene) return;
+        const name = saveDraft.trim();
+        onSaveScene(name || undefined);
+        setSaveDraft('');
+        setSaving(false);
+    };
+
+    const submitRenameScene = (sceneId) => {
+        if (!onRenameScene) { setRenamingId(null); return; }
+        const next = renameDraft.trim();
+        const current = scenes.find(s => s.id === sceneId);
+        if (next && next !== current?.name) {
+            onRenameScene(sceneId, next);
+        }
+        setRenamingId(null);
+    };
 
     return (
         <div style={{ padding: '0 2px' }}>
             {/* Header: section label + layout (show) switcher */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px 3px' }}>
-                <span style={{ fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 2, color: 'rgba(255,255,255,0.28)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, padding: '4px 8px 3px' }}>
+                <span style={{ fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 2, color: 'rgba(255,255,255,0.28)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flex: 1 }}>
                     {layoutName ? `Scenes · ${layoutName}` : 'Scenes'}
                 </span>
+                {onSaveScene && (
+                    <button
+                        onClick={() => { setOpen(true); setSaving(true); setRenamingId(null); }}
+                        title="Save current canvas as a new scene"
+                        style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'none', border: 'none', cursor: 'pointer', color: '#a5b4fc', fontSize: 8.5, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 0.5, flexShrink: 0, padding: 0 }}
+                    >
+                        <Plus size={10} /> Save
+                    </button>
+                )}
                 <button
                     onClick={onOpenLayouts}
                     title="Switch / manage layouts"
-                    style={{ display: 'flex', alignItems: 'center', gap: 3, background: 'none', border: 'none', cursor: 'pointer', color: '#a5b4fc', fontSize: 8.5, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 0.5, flexShrink: 0 }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 3, background: 'none', border: 'none', cursor: 'pointer', color: '#ff7956', fontSize: 8.5, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 0.5, flexShrink: 0, padding: 0 }}
                 >
                     <Layers size={10} /> Layouts
                 </button>
@@ -123,7 +185,7 @@ const ScenesDropdown = ({ layoutName, scenes = [], activeSceneId, onSwitchScene,
                     fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1,
                 }}
             >
-                {active ? <SceneDot color="#818cf8" /> : <span style={{ width: 6, height: 6, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.25)', flexShrink: 0 }} />}
+                {active ? <SceneDot color="#ff7956" /> : <span style={{ width: 6, height: 6, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.25)', flexShrink: 0 }} />}
                 <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: active ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.4)' }}>
                     {active ? active.name : (scenes.length ? 'Choose a scene…' : 'No scenes yet')}
                 </span>
@@ -132,7 +194,7 @@ const ScenesDropdown = ({ layoutName, scenes = [], activeSceneId, onSwitchScene,
 
             <AnimatePresence>
                 {open && (
-                    <motion.div
+                    <MotionDiv
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
                         exit={{ opacity: 0, height: 0 }}
@@ -141,43 +203,172 @@ const ScenesDropdown = ({ layoutName, scenes = [], activeSceneId, onSwitchScene,
                         <div style={{
                             marginTop: 4, padding: 4, borderRadius: 8,
                             background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
-                            display: 'flex', flexDirection: 'column', gap: 1,
+                            display: 'flex', flexDirection: 'column', gap: 2,
                         }}>
+                            {onSaveScene && saving && (
+                                <form onSubmit={submitSaveScene} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 4px 5px', borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: 2 }}>
+                                    <input
+                                        autoFocus
+                                        value={saveDraft}
+                                        onChange={e => setSaveDraft(e.target.value)}
+                                        onKeyDown={e => { if (e.key === 'Escape') { setSaving(false); setSaveDraft(''); } }}
+                                        placeholder="Scene name…"
+                                        style={{
+                                            flex: 1, minWidth: 0, height: 24, padding: '0 7px', borderRadius: 5,
+                                            background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(165,180,252,0.4)',
+                                            color: '#fff', fontSize: 10, fontFamily: 'inter, system-ui, sans-serif', outline: 'none',
+                                        }}
+                                    />
+                                    <IconBtn onClick={submitSaveScene} title="Confirm save scene"><Check size={11} /></IconBtn>
+                                    <IconBtn onClick={(e) => { e.preventDefault(); setSaving(false); setSaveDraft(''); }} title="Cancel" danger><X size={11} /></IconBtn>
+                                </form>
+                            )}
                             {scenes.length === 0 && (
-                                <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'rgba(255,255,255,0.3)', padding: '6px 7px', lineHeight: 1.5 }}>
-                                    No scenes here yet — hit Save Scene in the top bar.
+                                <div style={{ fontSize: 9, fontFamily: 'monospace', color: 'rgba(255,255,255,0.35)', padding: '6px 7px', lineHeight: 1.5 }}>
+                                    {onSaveScene ? 'No scenes here yet — save this canvas as your first scene.' : 'No scenes here yet — hit Save Scene in the top bar.'}
                                 </div>
                             )}
                             {scenes.map(s => {
                                 const isActive = s.id === activeSceneId;
+                                const isRenaming = renamingId === s.id;
                                 return (
                                     <div
                                         key={s.id}
-                                        onClick={() => { onSwitchScene?.(s.id); setOpen(false); }}
-                                        title="Switch to this scene"
+                                        onClick={() => { if (!isRenaming) { onSwitchScene?.(s.id); setOpen(false); } }}
+                                        title={isRenaming ? undefined : 'Switch to this scene'}
                                         style={{
-                                            display: 'flex', alignItems: 'center', gap: 7, padding: '5px 7px',
-                                            borderRadius: 6, cursor: 'pointer',
-                                            background: isActive ? 'rgba(99,102,241,0.16)' : 'transparent',
+                                            display: 'flex', alignItems: 'center', gap: 6, padding: '5px 7px',
+                                            borderRadius: 6, cursor: isRenaming ? 'default' : 'pointer',
+                                            background: isActive ? 'rgba(255,121,86,0.16)' : 'transparent',
                                         }}
-                                        onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
-                                        onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+                                        onMouseEnter={e => { if (!isActive && !isRenaming) e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+                                        onMouseLeave={e => { if (!isActive && !isRenaming) e.currentTarget.style.background = 'transparent'; }}
                                     >
-                                        <SceneDot color={isActive ? '#818cf8' : '#64748b'} />
-                                        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, color: isActive ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.7)' }}>
-                                            {s.name}
-                                        </span>
-                                        {isActive && (
-                                            <IconBtn onClick={(e) => { e.stopPropagation(); onUpdateScene?.(s.id); }} title="Update this scene to match the current canvas"><RotateCw size={10} /></IconBtn>
+                                        <SceneDot color={isActive ? '#ff7956' : '#64748b'} />
+                                        {isRenaming ? (
+                                            <>
+                                                <input
+                                                    autoFocus
+                                                    value={renameDraft}
+                                                    onClick={e => e.stopPropagation()}
+                                                    onChange={e => setRenameDraft(e.target.value)}
+                                                    onKeyDown={e => {
+                                                        e.stopPropagation();
+                                                        if (e.key === 'Enter') submitRenameScene(s.id);
+                                                        if (e.key === 'Escape') setRenamingId(null);
+                                                    }}
+                                                    style={{
+                                                        flex: 1, minWidth: 0, height: 22, padding: '0 6px', borderRadius: 4,
+                                                        background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.25)',
+                                                        color: '#fff', fontSize: 10, fontFamily: 'inter, system-ui, sans-serif', outline: 'none',
+                                                    }}
+                                                />
+                                                <IconBtn onClick={(e) => { e.stopPropagation(); submitRenameScene(s.id); }} title="Save name"><Check size={10} /></IconBtn>
+                                                <IconBtn onClick={(e) => { e.stopPropagation(); setRenamingId(null); }} title="Cancel" danger><X size={10} /></IconBtn>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, color: isActive ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.7)' }}>
+                                                    {s.name}
+                                                </span>
+                                                {onRenameScene && (
+                                                    <IconBtn onClick={(e) => { e.stopPropagation(); setRenamingId(s.id); setRenameDraft(s.name ?? ''); setSaving(false); }} title="Rename scene"><Pencil size={10} /></IconBtn>
+                                                )}
+                                                {isActive && (
+                                                    <IconBtn onClick={(e) => { e.stopPropagation(); onUpdateScene?.(s.id); }} title="Update this scene to match the current canvas"><RotateCw size={10} /></IconBtn>
+                                                )}
+                                                <IconBtn onClick={(e) => { e.stopPropagation(); onDeleteScene?.(s.id); }} title="Delete scene" danger><X size={11} /></IconBtn>
+                                            </>
                                         )}
-                                        <IconBtn onClick={(e) => { e.stopPropagation(); onDeleteScene?.(s.id); }} title="Delete scene" danger><X size={11} /></IconBtn>
                                     </div>
                                 );
                             })}
+                            {onSaveScene && !saving && (
+                                <button
+                                    onClick={() => { setSaving(true); setRenamingId(null); }}
+                                    style={{
+                                        marginTop: 2, padding: '5px 7px', borderRadius: 6, cursor: 'pointer',
+                                        background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.28)',
+                                        color: '#a5b4fc', fontSize: 9.5, fontFamily: 'monospace',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                                    }}
+                                >
+                                    <Plus size={10} /> Save current as scene
+                                </button>
+                            )}
                         </div>
-                    </motion.div>
+                    </MotionDiv>
                 )}
             </AnimatePresence>
+
+            {showTransitionControls && (
+                <div style={{
+                    marginTop: 5, padding: '6px 7px', borderRadius: 7,
+                    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
+                    display: 'flex', flexDirection: 'column', gap: 5,
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                        <span style={{ fontSize: 8.5, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1, color: 'rgba(255,255,255,0.38)', flexShrink: 0 }}>
+                            Transition
+                        </span>
+                        <select
+                            aria-label="Scene transition"
+                            value={transitionType}
+                            onChange={e => onTransitionChange?.({ ...transition, type: e.target.value, durationMs: transitionMs })}
+                            style={{
+                                flex: 1, minWidth: 0, height: 22, padding: '0 5px', borderRadius: 5,
+                                background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.12)',
+                                color: 'rgba(255,255,255,0.85)', fontSize: 10, fontFamily: 'inter, system-ui, sans-serif', outline: 'none', cursor: 'pointer',
+                            }}
+                        >
+                            {TRANSITION_OPTIONS.map(opt => (
+                                <option key={opt.value} value={opt.value} style={{ background: '#0e0e18', color: '#fff' }}>
+                                    {opt.label}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    {transitionType !== 'none' && (
+                        <>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <input
+                                    type="range"
+                                    aria-label="Transition duration"
+                                    min={150}
+                                    max={1200}
+                                    step={50}
+                                    value={transitionMs}
+                                    onChange={e => onTransitionChange?.({ ...transition, type: transitionType, durationMs: Number(e.target.value) })}
+                                    style={{ flex: 1, minWidth: 0, accentColor: '#ff7956', cursor: 'pointer' }}
+                                />
+                                <span style={{ fontSize: 9.5, fontFamily: 'monospace', color: 'rgba(255,255,255,0.6)', minWidth: 38, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                                    {transitionMs}ms
+                                </span>
+                            </div>
+                            <div style={{ display: 'flex', gap: 3 }}>
+                                {TRANSITION_DURATIONS.map(ms => {
+                                    const activeDur = transitionMs === ms;
+                                    return (
+                                        <button
+                                            key={ms}
+                                            onClick={() => onTransitionChange?.({ ...transition, type: transitionType, durationMs: ms })}
+                                            style={{
+                                                flex: 1, padding: '2px 0', borderRadius: 4, cursor: 'pointer',
+                                                fontSize: 8.5, fontFamily: 'monospace',
+                                                background: activeDur ? 'rgba(255,121,86,0.22)' : 'rgba(255,255,255,0.04)',
+                                                border: activeDur ? '1px solid rgba(255,121,86,0.5)' : '1px solid rgba(255,255,255,0.08)',
+                                                color: activeDur ? '#ff9d82' : 'rgba(255,255,255,0.48)',
+                                            }}
+                                        >
+                                            {ms}ms
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </>
+                    )}
+                </div>
+            )}
         </div>
     );
 };
@@ -196,9 +387,13 @@ const LayersPanel = ({
     scenes = [],
     activeSceneId,
     onSwitchScene,
+    onSaveScene,
     onUpdateScene,
+    onRenameScene,
     onDeleteScene,
     onOpenLayouts,
+    sceneTransition,
+    onTransitionChange,
     // Background / Theme / Reset
     onOpenBackground,
     onOpenTheme,
@@ -209,7 +404,7 @@ const LayersPanel = ({
     const availableBuiltins = BUILTIN_LAYERS.filter(l => !boxVisibility[l.id]);
 
     return (
-        <motion.div
+        <MotionDiv
             initial={{ opacity: 0, x: -12 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -12 }}
@@ -217,7 +412,8 @@ const LayersPanel = ({
             style={{
                 position: 'absolute',
                 left: 8, top: 8, bottom: 8,
-                width: 192,
+                width: 'min(224px, calc(100% - 16px))',
+                maxWidth: 'calc(100vw - 24px)',
                 zIndex: 200,
                 background: 'rgba(8,8,16,0.92)',
                 backdropFilter: 'blur(16px)',
@@ -249,9 +445,13 @@ const LayersPanel = ({
                     scenes={scenes}
                     activeSceneId={activeSceneId}
                     onSwitchScene={onSwitchScene}
+                    onSaveScene={onSaveScene}
                     onUpdateScene={onUpdateScene}
+                    onRenameScene={onRenameScene}
                     onDeleteScene={onDeleteScene}
                     onOpenLayouts={onOpenLayouts}
+                    sceneTransition={sceneTransition}
+                    onTransitionChange={onTransitionChange}
                 />
                 {/* ── Toolbox — always open; current layers live in the strip under the canvas ── */}
                 <div>
@@ -334,19 +534,6 @@ const LayersPanel = ({
                                     </>
                                 );
                             })()}
-                            <div style={{ height: 8 }} />
-                            <a
-                                href="https://github.com/abhayraghuwanshi/overlay-studio/issues/new?template=component_request.yml"
-                                target="_blank" rel="noreferrer"
-                                onClick={() => track('request_click', { location: 'studio_add_panel', template: 'component' })}
-                                style={{
-                                    display: 'block', textAlign: 'center', margin: '2px 2px 10px', padding: '8px 10px', borderRadius: 10,
-                                    border: '1px dashed rgba(165,180,252,0.3)', color: 'rgba(199,210,254,0.85)', textDecoration: 'none',
-                                    fontSize: 10.5, fontWeight: 500, lineHeight: 1.35, fontFamily: 'inter, system-ui, sans-serif',
-                                }}
-                            >
-                                Missing something?<br /><span style={{ color: '#a5b4fc' }}>Request a component ↗</span>
-                            </a>
                 </div>
 
             </div>
@@ -361,8 +548,8 @@ const LayersPanel = ({
                     onClick={onOpenTheme}
                     style={{
                         flex: 1, padding: '5px 0', borderRadius: 7,
-                        background: 'rgba(99,102,241,0.14)', border: '1px solid rgba(99,102,241,0.3)',
-                        color: '#a5b4fc', fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1,
+                        background: 'rgba(255,121,86,0.14)', border: '1px solid rgba(255,121,86,0.3)',
+                        color: '#ff7956', fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1,
                         cursor: 'pointer', transition: 'all 0.12s',
                     }}
                 >
@@ -393,7 +580,7 @@ const LayersPanel = ({
                     Reset
                 </button>
             </div>
-        </motion.div>
+        </MotionDiv>
     );
 };
 

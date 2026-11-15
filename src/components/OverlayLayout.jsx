@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, ChevronUp, Circle, Film, GripHorizontal, HelpCircle, Home, Layers, LayoutGrid, Pencil, Play, RotateCcw, Save, X } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Check, ChevronUp, Film, GripHorizontal, HelpCircle, Home, Layers, LayoutGrid, Pencil, Play, RotateCcw, Save, X } from 'lucide-react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { getRoom, isDefaultRoom, layoutUrl, newRoomId, setRoomInUrl, shareLinks } from '../config.js';
 import { track } from '../analytics';
 
@@ -26,11 +26,13 @@ import LayersPanel from './LayersPanel';
 import ThemePanel from './ThemePanel';
 import CameraFrame, { DEFAULT_CAM_STYLE } from './CameraFrame';
 import LayoutGallery from './LayoutGallery';
-import { holeMask, sceneHoles } from './graphics';
+import { frameHoleGeometry, holeMask, sceneHoles } from './graphics';
 import { DEFAULT_THEME, getTheme } from '../theme/themes';
 import { MOODS } from '../theme/moods';
 import { packSnapshot } from '../scenes/packs';
 import { STARTER_LAYOUTS, buildStarterLayout } from '../scenes/starterLayouts';
+
+const MotionDiv = motion.div;
 
 const DEFAULT_BOXES = {
     faceCam: { x: 80, y: 0, w: 20, h: 20 },
@@ -42,13 +44,188 @@ const DEFAULT_BOXES = {
 
 const CAMERA_IDS = ['faceCam', 'handCam', 'roomCam'];
 const NO_CAM_STYLES = {};
+const NO_CAM_VEIL = { faceCam: false, handCam: false, roomCam: false, holes: false };
 const RIGHT_PANEL_W = 300;  // element / camera editor sidebar width (desktop)   // stable fallback so memoised cut-outs don't churn
+const DEFAULT_SCENE_TRANSITION = { type: 'fade', durationMs: 420 };
+
+const boxNearlySame = (a, b) => !!a && !!b
+    && Math.abs((a.x ?? 0) - (b.x ?? 0)) < 0.25
+    && Math.abs((a.y ?? 0) - (b.y ?? 0)) < 0.25
+    && Math.abs((a.w ?? 0) - (b.w ?? 0)) < 0.25
+    && Math.abs((a.h ?? 0) - (b.h ?? 0)) < 0.25;
+
+const SCENE_TRANSITIONS = {
+    none: {
+        enter: { initial: false, animate: { opacity: 1 } },
+        exit: { initial: { opacity: 1 }, animate: { opacity: 0 } },
+        ease: 'linear',
+    },
+    fade: {
+        enter: { initial: { opacity: 0 }, animate: { opacity: 1 } },
+        exit: { initial: { opacity: 1 }, animate: { opacity: 0 } },
+        ease: [0.4, 0, 0.2, 1],
+    },
+    'fade-dip': {
+        enter: { initial: { opacity: 0 }, animate: { opacity: [0, 0, 1, 1] }, times: [0, 0.49, 0.51, 1] },
+        exit: { initial: { opacity: 1 }, animate: { opacity: [1, 1, 0, 0] }, times: [0, 0.48, 0.50, 1] },
+        dip: true,
+        ease: [0.4, 0, 0.2, 1],
+    },
+    'slide-left': {
+        enter: { initial: { x: '100%' }, animate: { x: '0%' } },
+        exit: { initial: { x: '0%' }, animate: { x: '-100%' } },
+        ease: [0.22, 1, 0.36, 1],
+    },
+    'slide-right': {
+        enter: { initial: { x: '-100%' }, animate: { x: '0%' } },
+        exit: { initial: { x: '0%' }, animate: { x: '100%' } },
+        ease: [0.22, 1, 0.36, 1],
+    },
+    'slide-up': {
+        enter: { initial: { y: '100%' }, animate: { y: '0%' } },
+        exit: { initial: { y: '0%' }, animate: { y: '-100%' } },
+        ease: [0.22, 1, 0.36, 1],
+    },
+    wipe: {
+        enter: { initial: { clipPath: 'inset(0 100% 0 0)' }, animate: { clipPath: 'inset(0 0% 0 0)' } },
+        // Complementary right-shrinking clip reveals transparent OBS cutouts cleanly mid-wipe.
+        exit: { initial: { clipPath: 'inset(0 0 0 0%)' }, animate: { clipPath: 'inset(0 0 0 100%)' } },
+        enterTop: true,
+        wipeEdge: true,
+        ease: [0.25, 0.9, 0.3, 1],
+    },
+    zoom: {
+        enter: { initial: { opacity: 0, scale: 0.92 }, animate: { opacity: 1, scale: 1 } },
+        exit: { initial: { opacity: 1, scale: 1 }, animate: { opacity: 0, scale: 1.07 } },
+        ease: [0.22, 1, 0.36, 1],
+    },
+};
+
+function resolveTransition(t) {
+    const type = t?.type && SCENE_TRANSITIONS[t.type] ? t.type : DEFAULT_SCENE_TRANSITION.type;
+    const rawMs = Number(t?.durationMs);
+    const durationMs = type === 'none'
+        ? 0
+        : Number.isFinite(rawMs)
+            ? Math.min(1500, Math.max(80, rawMs))
+            : DEFAULT_SCENE_TRANSITION.durationMs;
+    return { type, durationMs };
+}
+
+function renderFramedCam(slot, label, showLabel, camStyles, theme, veiled = false) {
+    const cs = camStyles?.[slot] ?? DEFAULT_CAM_STYLE;
+    return (
+        <CameraFrame frame={cs.frame} radius={cs.radius} accent={cs.accent ?? theme.accent} accent2={cs.accent2 ?? theme.accent2}>
+            <div style={{
+                position: 'relative',
+                width: '100%', height: '100%', boxSizing: 'border-box',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: showLabel ? 'rgba(255,255,255,0.04)' : 'transparent',
+                border: showLabel ? '1px dashed rgba(255,255,255,0.18)' : 'none',
+            }}>
+                {showLabel ? (
+                    <div style={{ textAlign: 'center', pointerEvents: 'none', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.7)' }}>{label}</div>
+                        <div style={{ fontSize: 8, marginTop: 3, color: 'rgba(255,255,255,0.4)' }}>OBS source</div>
+                    </div>
+                ) : (
+                    <div
+                        aria-hidden
+                        style={{
+                            position: 'absolute',
+                            inset: 0,
+                            background: '#070712',
+                            opacity: veiled ? 1 : 0,
+                            transition: veiled ? 'none' : 'opacity 160ms ease-out',
+                            pointerEvents: 'none',
+                        }}
+                    />
+                )}
+            </div>
+        </CameraFrame>
+    );
+}
+
+const ScaledContent = ({ children }) => (
+    <div style={{
+        width: 'calc(100% / var(--scene-scale-x, 1))',
+        height: 'calc(100% / var(--scene-scale-y, 1))',
+        transform: 'scale(var(--scene-scale-x, 1), var(--scene-scale-y, 1))',
+        transformOrigin: 'top left',
+    }}>
+        {children}
+    </div>
+);
 
 const elementTitle = (type) => type.charAt(0).toUpperCase() + type.slice(1);
+
+const FrozenSceneLayer = ({ stage }) => {
+    const { boxes, boxVisibility, elements, background, zOrder, theme, camStyles, mood, channel, liveState, serverOffsetMs, holes } = stage;
+    const bgLayer = background && background.type !== 'transparent'
+        ? { ...bgToStyle(background), ...holeMask(holes) }
+        : null;
+    const getFrozenZ = (id) => {
+        const idx = zOrder.indexOf(id);
+        return (idx === -1 ? zOrder.length : idx) + 10;
+    };
+
+    return (
+        <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+            {bgLayer && <div style={{ position: 'absolute', inset: 0, zIndex: 0, ...bgLayer }} />}
+            {elements.map((el, i) => {
+                if (el.hidden || !el.box) return null;
+                return (
+                    <div key={el.id} style={{
+                        position: 'absolute',
+                        left: `${el.box.x}%`, top: `${el.box.y}%`,
+                        width: `${el.box.w}%`, height: `${el.box.h}%`,
+                        zIndex: 100 + (elements.length - 1 - i),
+                    }}>
+                        <ScaledContent>
+                            <ElementRenderer
+                                element={el}
+                                theme={theme}
+                                mood={mood}
+                                channel={channel}
+                                preview
+                                holes={el.type === 'backdrop' ? holes : undefined}
+                                liveState={liveState}
+                                serverOffsetMs={serverOffsetMs}
+                            />
+                        </ScaledContent>
+                    </div>
+                );
+            })}
+            {CAMERA_IDS.filter(id => boxVisibility[id] && boxes[id]).map(id => {
+                const b = boxes[id];
+                return (
+                    <div key={id} style={{ position: 'absolute', left: `${b.x}%`, top: `${b.y}%`, width: `${b.w}%`, height: `${b.h}%`, zIndex: getFrozenZ(id) }}>
+                        {renderFramedCam(id, id.replace('Cam', '').toUpperCase(), false, camStyles, theme)}
+                    </div>
+                );
+            })}
+            {boxVisibility.aiCompanion && boxes.aiCompanion && (
+                <div style={{ position: 'absolute', left: `${boxes.aiCompanion.x}%`, top: `${boxes.aiCompanion.y}%`, width: `${boxes.aiCompanion.w}%`, height: `${boxes.aiCompanion.h}%`, zIndex: getFrozenZ('aiCompanion'), overflow: 'hidden' }}>
+                    <ScaledContent><div className="w-full h-full overflow-hidden"><AICompanion /></div></ScaledContent>
+                </div>
+            )}
+            {boxVisibility.currentTask && boxes.currentTask && (
+                <div style={{ position: 'absolute', left: `${boxes.currentTask.x}%`, top: `${boxes.currentTask.y}%`, width: `${boxes.currentTask.w}%`, height: `${boxes.currentTask.h}%`, zIndex: getFrozenZ('currentTask'), overflow: 'hidden' }}>
+                    <ScaledContent>
+                        <div className="w-full h-full bg-black/80 backdrop-blur-md border-t border-white/5 overflow-hidden">
+                            <CurrentTask tasks={stage.tasks} onTasksChange={() => {}} />
+                        </div>
+                    </ScaledContent>
+                </div>
+            )}
+        </div>
+    );
+};
 
 const ElementBox = memo(
     ({
         element, zIndex, selected, editMode, canvasRef, extraStyle, theme, mood, channel, holes,
+        liveState, serverOffsetMs, onLiveAction,
         onSelect, onBoxChange, onUploadLogo, onElementUpdate,
     }) => {
         const handleUploadLogo = useCallback(() => onUploadLogo(element.id), [element.id, onUploadLogo]);
@@ -67,7 +244,21 @@ const ElementBox = memo(
                 canvasRef={canvasRef}
                 extraStyle={extraStyle}
             >
-                <ElementRenderer element={element} editMode={editMode} onUploadLogo={handleUploadLogo} onElementUpdate={handleUpdate} theme={theme} mood={mood} channel={channel} holes={holes} />
+                <ScaledContent>
+                    <ElementRenderer
+                        element={element}
+                        editMode={editMode}
+                        onUploadLogo={handleUploadLogo}
+                        onElementUpdate={handleUpdate}
+                        theme={theme}
+                        mood={mood}
+                        channel={channel}
+                        holes={holes}
+                        liveState={liveState}
+                        serverOffsetMs={serverOffsetMs}
+                        onLiveAction={onLiveAction}
+                    />
+                </ScaledContent>
             </DraggableBox>
         );
     },
@@ -82,6 +273,9 @@ const ElementBox = memo(
         prev.mood === next.mood &&
         prev.channel === next.channel &&
         prev.holes === next.holes &&
+        prev.liveState === next.liveState &&
+        prev.serverOffsetMs === next.serverOffsetMs &&
+        prev.onLiveAction === next.onLiveAction &&
         prev.onSelect === next.onSelect &&
         prev.onBoxChange === next.onBoxChange &&
         prev.onUploadLogo === next.onUploadLogo &&
@@ -158,6 +352,22 @@ const OverlayLayout = () => {
     const { isRecording, isConnected, placeCameras } = useOBS();
     const canvasRef = useRef(null);
 
+    // Elements use 1920×1080 design pixels. Scale their content independently
+    // so editor handles and drag coordinates stay in screen pixels.
+    useLayoutEffect(() => {
+        const canvas = canvasRef.current;
+        const updateScale = (width, height) => {
+            canvas.style.setProperty('--scene-scale-x', Math.max(width / BASE_W, 0.001));
+            canvas.style.setProperty('--scene-scale-y', Math.max(height / BASE_H, 0.001));
+        };
+        updateScale(canvas.clientWidth, canvas.clientHeight);
+        const observer = new ResizeObserver(([entry]) => {
+            updateScale(entry.contentRect.width, entry.contentRect.height);
+        });
+        observer.observe(canvas);
+        return () => observer.disconnect();
+    }, []);
+
     // ── Boxes are separate state so dragging never re-renders the rest of the overlay ──
     const [boxes, setBoxes] = useState(DEFAULT_BOXES);
     const boxesRef = useRef(DEFAULT_BOXES);
@@ -174,14 +384,33 @@ const OverlayLayout = () => {
         background: { type: 'solid', color: '#0a0a0f' },
         theme: DEFAULT_THEME,
         scenes: [],
+        sceneTransition: DEFAULT_SCENE_TRANSITION,
     });
-    // Live mirror of camera visibility for callbacks that auto-place the native
-    // OBS camera sources without re-creating on every settings change.
+    // Live mirror of camera visibility, settings, and elements for callbacks without re-creating.
     const visRef = useRef(DEFAULT_VISIBILITY);
     visRef.current = layoutSettings.boxVisibility ?? DEFAULT_VISIBILITY;
+    const elementsRef = useRef([]);
+    elementsRef.current = layoutSettings.elements ?? [];
+    const layoutSettingsRef = useRef(layoutSettings);
+    layoutSettingsRef.current = layoutSettings;
+
+    // Synchronized server live state (`live:<room>`) for timers, wheel/alert triggers & transitions.
+    const [liveState, setLiveState] = useState({});
+    const liveStateRef = useRef(liveState);
+    liveStateRef.current = liveState;
+    const [serverOffsetMs, setServerOffsetMs] = useState(0);
+    const serverOffsetRef = useRef(0);
+
+    // Sync/serialization primitives to prevent stale polling overwrites or out-of-order saves.
+    const layoutHydratedRef = useRef(false);
+    const lastVerRef = useRef(null);
+    const writeEpochRef = useRef(0);
+    const writeQueueRef = useRef(Promise.resolve());
+    const lastLiveSceneSeqRef = useRef(null);
 
     // ── Responsive editor ── on narrow phones the side panels become overlays.
     const isNarrow = useIsNarrow();
+    const editorHeaderHeight = isNarrow ? 100 : 56;
     const fitScale = useFitScale();
     const [drawerOpen, setDrawerOpen] = useState(false); // left (layers) drawer on mobile
 
@@ -224,6 +453,190 @@ const OverlayLayout = () => {
     const [selectedBox, setSelectedBox] = useState(null);
     const [selectedElementId, setSelectedElementId] = useState(null);
     const [zOrder, setZOrder] = useState(Object.keys(DEFAULT_BOXES));
+    const zOrderRef = useRef(zOrder);
+    zOrderRef.current = zOrder;
+
+    // Scene transition playback state (`sceneEpoch` increments for every switch;
+    // `exitStage` temporarily holds the outgoing frozen scene snapshot during animation;
+    // `camVeil` holds matte cutouts until native OBS cameras/captures reposition).
+    const [sceneEpoch, setSceneEpoch] = useState(0);
+    const [activeTransition, setActiveTransition] = useState(DEFAULT_SCENE_TRANSITION);
+    const [exitStage, setExitStage] = useState(null);
+    const [camVeil, setCamVeil] = useState(NO_CAM_VEIL);
+    const currentMoodRef = useRef('chill');
+    const transitionDoneTimerRef = useRef(null);
+    const dipMidTimerRef = useRef(null);
+    const veilTimerRef = useRef(null);
+    const transitionMetaRef = useRef(null);
+    const overlayMountedRef = useRef(true);
+
+    const postLayout = useCallback((body) => {
+        writeEpochRef.current += 1;
+        const url = layoutUrl();
+        const payload = JSON.stringify({ ...body, _clientId: SESSION_ID });
+        writeQueueRef.current = writeQueueRef.current.then(async () => {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: payload,
+            });
+            if (!res.ok) return;
+            const data = await res.json().catch(() => null);
+            if (data?._v) lastVerRef.current = data._v;
+            if (typeof data?.serverNow === 'number') {
+                const offset = data.serverNow - Date.now();
+                serverOffsetRef.current = offset;
+                setServerOffsetMs(prev => (Math.abs(prev - offset) > 50 ? offset : prev));
+            }
+            if (data?.live) {
+                if (typeof data.live.scene?.seq === 'number') {
+                    lastLiveSceneSeqRef.current = Math.max(lastLiveSceneSeqRef.current ?? 0, data.live.scene.seq);
+                }
+                setLiveState(data.live);
+            }
+        }).catch(console.error);
+        return writeQueueRef.current;
+    }, []);
+
+    const handleLiveAction = useCallback((bucket, id, payload) => {
+        if (!bucket || !id) return;
+        const nowAligned = Date.now() + serverOffsetRef.current;
+        setLiveState(prev => {
+            const curBucket = prev?.[bucket] || {};
+            const nextBucket = { ...curBucket };
+            if (payload === null) {
+                delete nextBucket[id];
+            } else {
+                const prevItem = curBucket[id] || {};
+                const extra = bucket === 'triggers'
+                    ? { seq: (prevItem.seq || 0) + 1, at: nowAligned }
+                    : bucket === 'timers' && payload.state === 'running' && typeof payload.anchorAt !== 'number'
+                        ? { anchorAt: nowAligned }
+                        : {};
+                nextBucket[id] = { ...prevItem, ...payload, ...extra };
+            }
+            return { ...prev, [bucket]: nextBucket };
+        });
+        postLayout({ livePatch: { [bucket]: { [id]: payload } } });
+    }, [postLayout]);
+
+    const captureCurrentStageSnapshot = useCallback(() => {
+        const s = layoutSettingsRef.current;
+        const t = s.theme ?? DEFAULT_THEME;
+        const bv = s.boxVisibility ?? DEFAULT_VISIBILITY;
+        const cs = s.camStyles ?? NO_CAM_STYLES;
+        const els = s.elements ?? [];
+        const bx = boxesRef.current;
+        return {
+            boxes: bx,
+            boxVisibility: bv,
+            elements: els,
+            background: s.background ?? { type: 'solid', color: '#0a0a0f' },
+            zOrder: zOrderRef.current,
+            theme: t,
+            camStyles: cs,
+            tasks: s.tasks ?? [],
+            mood: currentMoodRef.current,
+            channel: s.twitchChannel ?? '',
+            liveState: liveStateRef.current,
+            serverOffsetMs: serverOffsetRef.current,
+            holes: sceneHoles({ boxes: bx, boxVisibility: bv, camStyles: cs, elements: els }, t),
+        };
+    }, []);
+
+    const clearExitStageTimers = useCallback(() => {
+        if (transitionDoneTimerRef.current) { clearTimeout(transitionDoneTimerRef.current); transitionDoneTimerRef.current = null; }
+        if (dipMidTimerRef.current) { clearTimeout(dipMidTimerRef.current); dipMidTimerRef.current = null; }
+        if (veilTimerRef.current) { clearTimeout(veilTimerRef.current); veilTimerRef.current = null; }
+    }, []);
+
+    const finishSceneTransition = useCallback((maybeToken) => {
+        const meta = transitionMetaRef.current;
+        if (!meta || meta.done) return;
+        if (typeof maybeToken === 'symbol' && meta.token !== maybeToken) return;
+        meta.done = true;
+        const token = meta.token;
+
+        clearExitStageTimers();
+        setExitStage(null);
+        if (!layoutHydratedRef.current) {
+            setCamVeil(NO_CAM_VEIL);
+            return;
+        }
+        if (meta.isDip && meta.settledOBS) {
+            setCamVeil(NO_CAM_VEIL);
+            return;
+        }
+        Promise.resolve(placeCameras(boxesRef.current, visRef.current, elementsRef.current))
+            .finally(() => {
+                if (!overlayMountedRef.current || transitionMetaRef.current?.token !== token) return;
+                veilTimerRef.current = setTimeout(() => {
+                    if (overlayMountedRef.current && transitionMetaRef.current?.token === token) {
+                        setCamVeil(NO_CAM_VEIL);
+                    }
+                }, 75);
+            });
+    }, [clearExitStageTimers, placeCameras]);
+
+    useEffect(() => {
+        overlayMountedRef.current = true;
+        return () => {
+            overlayMountedRef.current = false;
+            clearExitStageTimers();
+        };
+    }, [clearExitStageTimers]);
+
+    const startSceneTransition = useCallback((prevStage, rawTransition, nextBoxes, nextVis, nextEls) => {
+        clearExitStageTimers();
+        const resolved = resolveTransition(rawTransition);
+        setActiveTransition(resolved);
+        setSceneEpoch(n => n + 1);
+
+        if (resolved.type === 'none' || resolved.durationMs <= 0 || !prevStage) {
+            transitionMetaRef.current = null;
+            setExitStage(null);
+            setCamVeil(NO_CAM_VEIL);
+            placeCameras(nextBoxes, nextVis, nextEls);
+            return;
+        }
+
+        const spec = SCENE_TRANSITIONS[resolved.type];
+        const token = Symbol('sceneTransition');
+        transitionMetaRef.current = { token, isDip: !!spec?.dip, settledOBS: false, done: false };
+        const exitKey = `exit_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        setExitStage({ key: exitKey, ...prevStage, transition: resolved });
+
+        if (spec?.dip) {
+            setCamVeil(NO_CAM_VEIL);
+            // Dip-to-black curtain stays 100% opaque across [0.34..0.66]; switch OBS inside that plateau.
+            dipMidTimerRef.current = setTimeout(() => {
+                if (transitionMetaRef.current?.token !== token) return;
+                transitionMetaRef.current.settledOBS = true;
+                placeCameras(boxesRef.current, visRef.current, elementsRef.current);
+            }, Math.round(resolved.durationMs * 0.40));
+        } else {
+            // Defer OBS source resizing/enabling until the overlay layout finishes landing so
+            // native OBS cameras/captures never pop in ahead of the transition animation.
+            const movesCanvas = resolved.type !== 'fade';
+            const prevHoleEls = (prevStage.elements || []).filter(e => e.type === 'frame' && e.hole && !e.hidden && e.box);
+            const nextHoleEls = (nextEls || []).filter(e => e.type === 'frame' && e.hole && !e.hidden && e.box);
+            const holesChanged = nextHoleEls.length > 0 && (
+                movesCanvas ||
+                prevHoleEls.length !== nextHoleEls.length ||
+                nextHoleEls.some((ne, idx) => !boxNearlySame(ne.box, prevHoleEls[idx]?.box))
+            );
+            setCamVeil({
+                faceCam: !!nextVis.faceCam && (movesCanvas || !prevStage.boxVisibility?.faceCam || !boxNearlySame(prevStage.boxes?.faceCam, nextBoxes.faceCam)),
+                handCam: !!nextVis.handCam && (movesCanvas || !prevStage.boxVisibility?.handCam || !boxNearlySame(prevStage.boxes?.handCam, nextBoxes.handCam)),
+                roomCam: !!nextVis.roomCam && (movesCanvas || !prevStage.boxVisibility?.roomCam || !boxNearlySame(prevStage.boxes?.roomCam, nextBoxes.roomCam)),
+                holes: holesChanged,
+            });
+        }
+
+        transitionDoneTimerRef.current = setTimeout(() => {
+            finishSceneTransition(token);
+        }, resolved.durationMs + 110);
+    }, [clearExitStageTimers, finishSceneTransition, placeCameras]);
 
     // Cameras are NOT captured in the browser — the real webcam is a native OBS
     // "Video Capture Device" source. The overlay only renders a styled FRAME
@@ -241,9 +654,16 @@ const OverlayLayout = () => {
         }
     }, [isRecording]);
 
+    // ── OBS connect — place native cameras once initial layout is hydrated ──
+    useEffect(() => {
+        if (isConnected && layoutHydratedRef.current) {
+            placeCameras(boxesRef.current, visRef.current, elementsRef.current);
+        }
+    }, [isConnected, placeCameras]);
+
     // ── Canvas click — deselect ──────────────────────────────────────────────
     const onCanvasPointerDown = useCallback((e) => {
-        if (e.target === e.currentTarget) {
+        if (e.target === e.currentTarget || e.target?.dataset?.canvasStage === '1') {
             setSelectedBox(null);
             setSelectedElementId(null);
         }
@@ -273,12 +693,8 @@ const OverlayLayout = () => {
     // ── Stable layout updater (non-box settings only) ───────────────────────
     const updateLayout = useCallback((updates) => {
         setLayoutSettings(s => ({ ...s, ...updates }));
-        fetch(layoutUrl(), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...updates, _clientId: SESSION_ID }),
-        }).catch(console.error);
-    }, []);
+        postLayout(updates);
+    }, [postLayout]);
 
     // ── Theme ────────────────────────────────────────────────────────────────
     // applyTheme replaces the whole theme (picking a starter); updateTheme
@@ -287,13 +703,9 @@ const OverlayLayout = () => {
     const updateTheme = useCallback((changes) =>
         setLayoutSettings(s => {
             const theme = { ...(s.theme ?? DEFAULT_THEME), ...changes };
-            fetch(layoutUrl(), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ theme, _clientId: SESSION_ID }),
-            }).catch(console.error);
+            postLayout({ theme });
             return { ...s, theme };
-        }), []);
+        }), [postLayout]);
 
     // ── Stable box updater — only updates boxes state, not layoutSettings ───
     const updateBox = useCallback((id, newBox) => {
@@ -301,29 +713,22 @@ const OverlayLayout = () => {
         boxesRef.current = updated;
         setBoxes(updated);
         // Dragging a cam frame also re-pins the native OBS camera source to it.
-        if (CAMERA_IDS.includes(id)) placeCameras(updated, visRef.current);
-        fetch(layoutUrl(), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ boxes: updated, _clientId: SESSION_ID }),
-        }).catch(console.error);
-    }, [placeCameras]);
+        if (CAMERA_IDS.includes(id)) placeCameras(updated, visRef.current, elementsRef.current);
+        postLayout({ boxes: updated });
+    }, [placeCameras, postLayout]);
 
     const resetLayout = useCallback(() => {
         boxesRef.current = DEFAULT_BOXES;
         setBoxes(DEFAULT_BOXES);
-        placeCameras(DEFAULT_BOXES, visRef.current);
-        fetch(layoutUrl(), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ boxes: DEFAULT_BOXES, _clientId: SESSION_ID }),
-        }).catch(console.error);
-    }, [placeCameras]);
+        placeCameras(DEFAULT_BOXES, visRef.current, elementsRef.current);
+        postLayout({ boxes: DEFAULT_BOXES });
+    }, [placeCameras, postLayout]);
 
     // ── Scenes ───────────────────────────────────────────────────────────────
     // A scene snapshot = { boxes, boxVisibility, elements, background, zOrder }.
     // Applying replaces the whole visual layout in one shot (and persists it).
-    const applyScene = useCallback((snapshot = {}) => {
+    const applyScene = useCallback((snapshot = {}, { persist = true, extraPatch = {}, transition } = {}) => {
+        const prevStage = captureCurrentStageSnapshot();
         const nBoxes = { ...DEFAULT_BOXES, ...(snapshot.boxes ?? {}) };
         const nVis   = { ...DEFAULT_VISIBILITY, ...(snapshot.boxVisibility ?? {}) };
         const nEls   = snapshot.elements ?? [];
@@ -336,15 +741,20 @@ const OverlayLayout = () => {
         if (snapshot.camStyles !== undefined) extra.camStyles = snapshot.camStyles;
 
         boxesRef.current = nBoxes;
+        visRef.current = nVis;
+        elementsRef.current = nEls;
+        zOrderRef.current = nZ;
         setBoxes(nBoxes);
         setZOrder(nZ);
         setSelectedBox(null);
         setSelectedElementId(null);
-        // Snap the native OBS camera sources into this scene's cam frames (and
-        // hide them on scenes that don't use a cam). No-op if OBS isn't connected.
-        placeCameras(nBoxes, nVis);
+
+        const nextTransition = transition ?? snapshot.transition ?? layoutSettingsRef.current.sceneTransition ?? DEFAULT_SCENE_TRANSITION;
+        startSceneTransition(prevStage, nextTransition, nBoxes, nVis, nEls);
+
         setLayoutSettings(s => ({
             ...s,
+            ...extraPatch,
             elements: nEls,
             background: nBg,
             boxVisibility: nVis,
@@ -354,21 +764,26 @@ const OverlayLayout = () => {
             ...(nTheme ? { theme: nTheme } : {}),
             ...extra,
         }));
-        fetch(layoutUrl(), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                boxes: nBoxes, elements: nEls, background: nBg, boxVisibility: nVis,
+        if (persist) {
+            postLayout({
+                ...extraPatch,
+                boxes: nBoxes, elements: nEls, background: nBg, boxVisibility: nVis, zOrder: nZ,
                 showFaceCam: nVis.faceCam, showHandCam: nVis.handCam, showRoomCam: nVis.roomCam,
                 ...(nTheme ? { theme: nTheme } : {}),
                 ...extra,
-                _clientId: SESSION_ID,
-            }),
-        }).catch(console.error);
-    }, [placeCameras]);
+            });
+        }
+    }, [captureCurrentStageSnapshot, startSceneTransition, postLayout]);
 
     // Installing a pack applies its theme + signature scene in one shot.
-    const installPack = useCallback((pack) => applyScene(packSnapshot(pack)), [applyScene]);
+    const installPack = useCallback((pack) => {
+        const snap = packSnapshot(pack);
+        const transition = layoutSettingsRef.current.sceneTransition ?? DEFAULT_SCENE_TRANSITION;
+        applyScene(snap, {
+            transition,
+            extraPatch: { livePatch: { scene: { activeSceneId: `pack:${pack.id}`, transition } } },
+        });
+    }, [applyScene]);
 
     // ── Go Live ──────────────────────────────────────────────────────────────
     // Give this session its own private room so multiple users don't collide on
@@ -379,12 +794,17 @@ const OverlayLayout = () => {
     const goLive = useCallback(async () => {
         const fresh = isDefaultRoom();
         if (fresh) {
-            setRoomInUrl(newRoomId());
+            const roomId = newRoomId();
+            const currentSettings = layoutSettingsRef.current;
+            const localLib = loadLocalLibrary();
+            setRoomInUrl(roomId);
+            lastVerRef.current = null;
             try {
-                await fetch(layoutUrl(), {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ...layoutSettings, boxes: boxesRef.current, zOrder, _clientId: SESSION_ID }),
+                await postLayout({
+                    ...currentSettings,
+                    layouts: localLib.length > 0 ? localLib : (currentSettings.layouts ?? []),
+                    boxes: boxesRef.current,
+                    zOrder: zOrderRef.current,
                 });
             } catch (e) { console.error(e); }
         }
@@ -399,7 +819,7 @@ const OverlayLayout = () => {
         // minting a fresh room is the real activation moment; re-copying an
         // existing room's link is a returning user, tracked separately.
         track(fresh ? 'go_live' : 'obs_link_copied', { room });
-    }, [layoutSettings, zOrder]);
+    }, [postLayout]);
 
     // ── Layouts → Scenes ─────────────────────────────────────────────────────
     // A LAYOUT is a named container (a "show": e.g. Valorant Stream). It holds
@@ -416,7 +836,7 @@ const OverlayLayout = () => {
         camStyles: layoutSettings.camStyles ?? {},
     }), [zOrder, layoutSettings]);
 
-    const layouts = layoutSettings.layouts ?? [];
+    const layouts = useMemo(() => layoutSettings.layouts ?? [], [layoutSettings.layouts]);
     const activeLayoutId = layoutSettings.activeLayoutId ?? layouts[0]?.id ?? null;
     const activeLayout = layouts.find(l => l.id === activeLayoutId) ?? null;
     const activeScene = activeLayout?.scenes.find(s => s.id === activeLayout.activeSceneId) ?? activeLayout?.scenes[0] ?? null;
@@ -428,12 +848,12 @@ const OverlayLayout = () => {
     const writeLayouts = useCallback((nextLayouts, extra) => {
         if (isDefaultRoom()) {
             saveLocalLibrary(nextLayouts);
-            setLayoutSettings(s => ({ ...s, layouts: nextLayouts }));
-            if (extra) updateLayout(extra);
+            setLayoutSettings(s => ({ ...s, layouts: nextLayouts, ...(extra || {}) }));
+            if (extra) postLayout(extra);
             return;
         }
         updateLayout({ layouts: nextLayouts, ...(extra || {}) });
-    }, [updateLayout]);
+    }, [updateLayout, postLayout]);
 
     // ── Layout (container) ops ──
     const createLayout = useCallback((name) => {
@@ -451,12 +871,28 @@ const OverlayLayout = () => {
     }, [layouts, captureSnapshot, writeLayouts]);
 
     // Add a ready-made starter layout: build a real container from the template,
-    // append it, make it active, and apply its first scene so the canvas updates.
+    // append it, make it active, and apply its first scene atomically in one POST.
     const addStarterLayout = useCallback((starter) => {
         const layout = buildStarterLayout(starter);
-        writeLayouts([...layouts, layout], { activeLayoutId: layout.id });
+        const nextLayouts = [...layouts, layout];
         const scene = layout.scenes[0];
-        if (scene) applyScene(scene.snapshot);
+        if (isDefaultRoom()) {
+            saveLocalLibrary(nextLayouts);
+            setLayoutSettings(s => ({ ...s, layouts: nextLayouts, activeLayoutId: layout.id }));
+        }
+        const transition = layoutSettingsRef.current.sceneTransition ?? DEFAULT_SCENE_TRANSITION;
+        if (scene) {
+            applyScene(scene.snapshot, {
+                transition,
+                extraPatch: {
+                    activeLayoutId: layout.id,
+                    ...(isDefaultRoom() ? {} : { layouts: nextLayouts }),
+                    livePatch: { scene: { activeSceneId: scene.id, transition } },
+                },
+            });
+        } else {
+            writeLayouts(nextLayouts, { activeLayoutId: layout.id });
+        }
     }, [layouts, writeLayouts, applyScene]);
 
     const renameLayout = useCallback((id, name) => {
@@ -465,15 +901,48 @@ const OverlayLayout = () => {
 
     const deleteLayout = useCallback((id) => {
         const next = layouts.filter(l => l.id !== id);
-        writeLayouts(next, id === activeLayoutId ? { activeLayoutId: next[0]?.id ?? null } : undefined);
-    }, [layouts, activeLayoutId, writeLayouts]);
+        if (id !== activeLayoutId) {
+            writeLayouts(next);
+            return;
+        }
+        const fallbackLayout = next[0] ?? null;
+        const nextActiveId = fallbackLayout?.id ?? null;
+        const fallbackScene = fallbackLayout?.scenes?.find(s => s.id === fallbackLayout.activeSceneId) ?? fallbackLayout?.scenes?.[0] ?? null;
+        if (isDefaultRoom()) {
+            saveLocalLibrary(next);
+            setLayoutSettings(s => ({ ...s, layouts: next, activeLayoutId: nextActiveId }));
+        }
+        const transition = layoutSettingsRef.current.sceneTransition ?? DEFAULT_SCENE_TRANSITION;
+        if (fallbackScene) {
+            applyScene(fallbackScene.snapshot, {
+                transition,
+                extraPatch: {
+                    activeLayoutId: nextActiveId,
+                    ...(isDefaultRoom() ? {} : { layouts: next }),
+                    livePatch: { scene: { activeSceneId: fallbackScene.id, transition } },
+                },
+            });
+        } else {
+            writeLayouts(next, { activeLayoutId: nextActiveId });
+        }
+    }, [layouts, activeLayoutId, writeLayouts, applyScene]);
 
     const switchLayout = useCallback((id) => {
         const l = layouts.find(x => x.id === id);
         if (!l) return;
-        updateLayout({ activeLayoutId: id });
         const scene = l.scenes.find(s => s.id === l.activeSceneId) ?? l.scenes[0];
-        if (scene) applyScene(scene.snapshot);
+        const transition = scene?.snapshot?.transition ?? layoutSettingsRef.current.sceneTransition ?? DEFAULT_SCENE_TRANSITION;
+        if (scene) {
+            applyScene(scene.snapshot, {
+                transition,
+                extraPatch: {
+                    activeLayoutId: id,
+                    livePatch: { scene: { activeSceneId: scene.id, transition } },
+                },
+            });
+        } else {
+            updateLayout({ activeLayoutId: id });
+        }
     }, [layouts, updateLayout, applyScene]);
 
     // ── Scene ops (operate on the active layout) ──
@@ -495,9 +964,24 @@ const OverlayLayout = () => {
     const switchScene = useCallback((sceneId) => {
         if (!activeLayout) return;
         const scene = activeLayout.scenes.find(s => s.id === sceneId);
-        writeLayouts(layouts.map(l => l.id === activeLayout.id ? { ...l, activeSceneId: sceneId } : l));
-        if (scene) applyScene(scene.snapshot);
-    }, [layouts, activeLayout, writeLayouts, applyScene]);
+        const nextLayouts = layouts.map(l => l.id === activeLayout.id ? { ...l, activeSceneId: sceneId } : l);
+        if (isDefaultRoom()) {
+            saveLocalLibrary(nextLayouts);
+            setLayoutSettings(s => ({ ...s, layouts: nextLayouts }));
+        }
+        const transition = scene?.snapshot?.transition ?? layoutSettingsRef.current.sceneTransition ?? DEFAULT_SCENE_TRANSITION;
+        if (scene) {
+            applyScene(scene.snapshot, {
+                transition,
+                extraPatch: {
+                    ...(isDefaultRoom() ? {} : { layouts: nextLayouts }),
+                    livePatch: { scene: { activeSceneId: sceneId, transition } },
+                },
+            });
+        } else if (!isDefaultRoom()) {
+            postLayout({ layouts: nextLayouts });
+        }
+    }, [layouts, activeLayout, applyScene, postLayout]);
 
     const updateScene = useCallback((sceneId) => {
         if (!activeLayout) return;
@@ -516,14 +1000,30 @@ const OverlayLayout = () => {
 
     const deleteScene = useCallback((sceneId) => {
         if (!activeLayout) return;
-        writeLayouts(layouts.map(l => l.id === activeLayout.id
-            ? {
-                ...l,
-                scenes: l.scenes.filter(s => s.id !== sceneId),
-                activeSceneId: l.activeSceneId === sceneId ? (l.scenes.find(s => s.id !== sceneId)?.id ?? null) : l.activeSceneId,
+        const remaining = activeLayout.scenes.filter(s => s.id !== sceneId);
+        const deletingActive = activeLayout.activeSceneId === sceneId;
+        const fallbackScene = deletingActive ? (remaining[0] ?? null) : null;
+        const nextActiveSceneId = deletingActive ? (fallbackScene?.id ?? null) : activeLayout.activeSceneId;
+        const nextLayouts = layouts.map(l => l.id === activeLayout.id
+            ? { ...l, scenes: remaining, activeSceneId: nextActiveSceneId }
+            : l);
+        if (fallbackScene) {
+            if (isDefaultRoom()) {
+                saveLocalLibrary(nextLayouts);
+                setLayoutSettings(s => ({ ...s, layouts: nextLayouts }));
             }
-            : l));
-    }, [layouts, activeLayout, writeLayouts]);
+            const transition = fallbackScene.snapshot?.transition ?? layoutSettingsRef.current.sceneTransition ?? DEFAULT_SCENE_TRANSITION;
+            applyScene(fallbackScene.snapshot, {
+                transition,
+                extraPatch: {
+                    ...(isDefaultRoom() ? {} : { layouts: nextLayouts }),
+                    livePatch: { scene: { activeSceneId: fallbackScene.id, transition } },
+                },
+            });
+        } else {
+            writeLayouts(nextLayouts);
+        }
+    }, [layouts, activeLayout, writeLayouts, applyScene]);
 
     // ── Element helpers ──────────────────────────────────────────────────────
     // `box` (optional) overrides the type's default position/size — used by
@@ -533,16 +1033,13 @@ const OverlayLayout = () => {
         if (box) el.box = box;
         setLayoutSettings(s => {
             const newElements = [...(s.elements ?? []), el];
-            fetch(layoutUrl(), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ elements: newElements, _clientId: SESSION_ID }),
-            }).catch(console.error);
+            elementsRef.current = newElements;
+            postLayout({ elements: newElements });
             return { ...s, elements: newElements };
         });
         setSelectedElementId(el.id);
         setSelectedBox(null);
-    }, []);
+    }, [postLayout]);
 
     // Canvas placement gesture: click = default-size at point, drag = drawn box.
     // Pointer events so tap/drag-to-place works with touch on phones.
@@ -610,29 +1107,34 @@ const OverlayLayout = () => {
     }, [placingType, addElement]);
 
     const updateElement = useCallback((id, changes) => {
-        setLayoutSettings(s => {
-            const newElements = (s.elements ?? []).map(el => el.id === id ? { ...el, ...changes } : el);
-            fetch(layoutUrl(), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ elements: newElements, _clientId: SESSION_ID }),
-            }).catch(console.error);
-            return { ...s, elements: newElements };
-        });
-    }, []);
+        const prev = elementsRef.current ?? [];
+        const touched = prev.find(el => el.id === id);
+        const nextElements = prev.map(el => el.id === id ? { ...el, ...changes } : el);
+        elementsRef.current = nextElements;
+        if ((touched?.hole || changes.hole !== undefined) &&
+            (changes.box !== undefined || changes.hole !== undefined || changes.hidden !== undefined)) {
+            placeCameras(boxesRef.current, visRef.current, nextElements);
+        }
+        setLayoutSettings(s => ({
+            ...s,
+            elements: (s.elements ?? []).map(el => el.id === id ? { ...el, ...changes } : el),
+        }));
+        postLayout({ elementPatch: { id, changes } });
+    }, [placeCameras, postLayout]);
 
     const deleteElement = useCallback((id) => {
+        const prev = elementsRef.current ?? [];
+        const touched = prev.find(el => el.id === id);
+        const nextElements = prev.filter(el => el.id !== id);
+        elementsRef.current = nextElements;
+        if (touched?.hole) placeCameras(boxesRef.current, visRef.current, nextElements);
         setLayoutSettings(s => {
             const newElements = (s.elements ?? []).filter(el => el.id !== id);
-            fetch(layoutUrl(), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ elements: newElements, _clientId: SESSION_ID }),
-            }).catch(console.error);
+            postLayout({ elements: newElements });
             return { ...s, elements: newElements };
         });
         setSelectedElementId(null);
-    }, []);
+    }, [placeCameras, postLayout]);
 
     // Copy an element just above the original, nudged so both stay visible.
     const duplicateElement = useCallback((id) => {
@@ -644,24 +1146,27 @@ const OverlayLayout = () => {
             const src = els[i];
             const box = src.box ? { ...src.box, x: Math.min(100 - src.box.w, src.box.x + 2), y: Math.min(100 - src.box.h, src.box.y + 2) } : src.box;
             const newElements = [...els.slice(0, i), { ...src, id: copyId, box }, ...els.slice(i)];
-            fetch(layoutUrl(), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ elements: newElements, _clientId: SESSION_ID }),
-            }).catch(console.error);
+            elementsRef.current = newElements;
+            postLayout({ elements: newElements });
             return { ...s, elements: newElements };
         });
         setSelectedElementId(copyId);
-    }, []);
+    }, [postLayout]);
 
     const toggleElementVisibility = useCallback((id) => {
-        setLayoutSettings(s => {
-            const el = (s.elements ?? []).find(e => e.id === id);
-            if (!el) return s;
-            const newElements = (s.elements ?? []).map(e => e.id === id ? { ...e, hidden: !e.hidden } : e);
-            return { ...s, elements: newElements };
-        });
-    }, []);
+        const prev = elementsRef.current ?? [];
+        const touched = prev.find(el => el.id === id);
+        if (!touched) return;
+        const nextHidden = !touched.hidden;
+        const nextElements = prev.map(e => e.id === id ? { ...e, hidden: nextHidden } : e);
+        elementsRef.current = nextElements;
+        if (touched.hole) placeCameras(boxesRef.current, visRef.current, nextElements);
+        setLayoutSettings(s => ({
+            ...s,
+            elements: (s.elements ?? []).map(e => e.id === id ? { ...e, hidden: nextHidden } : e),
+        }));
+        postLayout({ elementPatch: { id, changes: { hidden: nextHidden } } });
+    }, [placeCameras, postLayout]);
 
     const updateElementBox = useCallback((id, box) => updateElement(id, { box }), [updateElement]);
 
@@ -677,8 +1182,15 @@ const OverlayLayout = () => {
     // ── Box z-order ──────────────────────────────────────────────────────────
     const selectBox = useCallback((id) => {
         setSelectedBox(id);
-        setZOrder(prev => [...prev.filter(x => x !== id), id]);
-    }, []);
+        setSelectedElementId(null);
+        setZOrder(prev => {
+            if (prev[prev.length - 1] === id) return prev;
+            const next = [...prev.filter(x => x !== id), id];
+            zOrderRef.current = next;
+            postLayout({ zOrder: next });
+            return next;
+        });
+    }, [postLayout]);
 
     const layerUp = useCallback((id) => {
         setZOrder(prev => {
@@ -686,9 +1198,11 @@ const OverlayLayout = () => {
             if (i >= prev.length - 1) return prev;
             const next = [...prev];
             [next[i], next[i + 1]] = [next[i + 1], next[i]];
+            zOrderRef.current = next;
+            postLayout({ zOrder: next });
             return next;
         });
-    }, []);
+    }, [postLayout]);
 
     const layerDown = useCallback((id) => {
         setZOrder(prev => {
@@ -696,11 +1210,16 @@ const OverlayLayout = () => {
             if (i <= 0) return prev;
             const next = [...prev];
             [next[i], next[i - 1]] = [next[i - 1], next[i]];
+            zOrderRef.current = next;
+            postLayout({ zOrder: next });
             return next;
         });
-    }, []);
+    }, [postLayout]);
 
-    const getZIndex = useCallback((id) => zOrder.indexOf(id) + 10, [zOrder]);
+    const getZIndex = useCallback((id) => {
+        const idx = zOrder.indexOf(id);
+        return (idx === -1 ? zOrder.length : idx) + 10;
+    }, [zOrder]);
 
     // ── Visibility helpers ───────────────────────────────────────────────────
     const getBoxVisible = useCallback((id) => {
@@ -713,21 +1232,19 @@ const OverlayLayout = () => {
     const setBuiltinVisible = useCallback((id, value) => {
         // Adding/removing a cam box also shows/places or hides the matching
         // native OBS camera source.
-        if (CAMERA_IDS.includes(id)) placeCameras(boxesRef.current, { ...visRef.current, [id]: value });
+        const nextVis = { ...visRef.current, [id]: value };
+        visRef.current = nextVis;
+        if (CAMERA_IDS.includes(id)) placeCameras(boxesRef.current, nextVis, elementsRef.current);
         setLayoutSettings(s => {
             const bv = s.boxVisibility ?? DEFAULT_VISIBILITY;
             const updates = { boxVisibility: { ...bv, [id]: value } };
             if (id === 'faceCam') updates.showFaceCam = value;
             if (id === 'handCam') updates.showHandCam = value;
             if (id === 'roomCam') updates.showRoomCam = value;
-            fetch(layoutUrl(), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...updates, _clientId: SESSION_ID }),
-            }).catch(console.error);
+            postLayout(updates);
             return { ...s, ...updates };
         });
-    }, [placeCameras]);
+    }, [placeCameras, postLayout]);
 
     const addBuiltin = useCallback((id) => {
         setBuiltinVisible(id, true);
@@ -749,14 +1266,11 @@ const OverlayLayout = () => {
             if (i < 0 || j < 0 || j >= els.length) return s;
             const next = [...els];
             [next[i], next[j]] = [next[j], next[i]];
-            fetch(layoutUrl(), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ elements: next, _clientId: SESSION_ID }),
-            }).catch(console.error);
+            elementsRef.current = next;
+            postLayout({ elements: next });
             return { ...s, elements: next };
         });
-    }, []);
+    }, [postLayout]);
     const elementUp = useCallback((id) => moveElement(id, -1), [moveElement]);
     const elementDown = useCallback((id) => moveElement(id, +1), [moveElement]);
 
@@ -765,97 +1279,146 @@ const OverlayLayout = () => {
         setLayoutSettings(s => {
             const cur = s.camStyles ?? {};
             const next = { ...cur, [slot]: { ...DEFAULT_CAM_STYLE, ...(cur[slot] ?? {}), ...changes } };
-            fetch(layoutUrl(), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ camStyles: next, _clientId: SESSION_ID }),
-            }).catch(console.error);
+            postLayout({ camStyles: next });
             return { ...s, camStyles: next };
         });
-    }, []);
+    }, [postLayout]);
 
-    // ── Hosted layout sync (adaptive polling) ────────────────────────────────
-    // The design lives in the hosted /api store; viewers (OBS) pull it by
-    // polling — no WebSocket. To avoid hammering the backend (and burning KV
-    // quota), the loop is adaptive: it polls quickly right after a change, then
-    // backs off to a slow cadence when the layout is unchanged, and pauses
-    // entirely while you're editing or the tab is hidden. It also short-circuits
-    // re-renders when the fetched payload is identical to the last one.
-    const POLL_FAST = 3000;   // ms — recently changed / just became visible
-    const POLL_SLOW = 20000;  // ms — settled, nothing changing
-    const POLL_MISSES_TO_SLOW = 3;
+    // ── Hosted layout sync (adaptive polling + live-only delta path) ─────────
+    // Viewers (?obs) poll by compound `_v` (<designVer>.<liveVer>):
+    //   204 → nothing changed
+    //   200 + _liveOnly → only timers/wheel/alert/scene live state changed (skips heavy layout read)
+    //   200 full payload → full design update
     // Flips once the first load has brought in the saved-layouts library, so
     // anything that appends to it (e.g. ?kit=) doesn't overwrite it.
     const [libReady, setLibReady] = useState(false);
     useEffect(() => {
+        const POLL_FAST = CLEAN_MODE ? 1500 : 3000;
+        const POLL_SLOW = CLEAN_MODE ? 10000 : 20000;
+        const POLL_MISSES_TO_SLOW = 5;
         let isMounted = true;
         let timer;
-        let lastSig = null;   // signature of the last applied payload
-        let lastVer = null;   // server version tag of the last payload (api/layout.js `_v`)
-        let misses = 0;       // consecutive unchanged polls
+        let lastSig = null;    // signature of the last applied design payload
+        let misses = 0;        // consecutive unchanged polls
         let libLoaded = false; // saved-layouts library fetched once already
+        let activeAbort = null;
 
-        const applyData = (data) => {
-            if (!isMounted || !data || typeof data !== 'object') return;
-            if (data.boxes) {
-                const newBoxes = { ...DEFAULT_BOXES, ...data.boxes };
-                boxesRef.current = newBoxes;
-                setBoxes(newBoxes);
+        const syncClockAndLive = (payload, isFirstLoad) => {
+            if (typeof payload.serverNow === 'number') {
+                const offset = payload.serverNow - Date.now();
+                serverOffsetRef.current = offset;
+                setServerOffsetMs(prev => (Math.abs(prev - offset) > 50 ? offset : prev));
             }
-            const { boxes: _b, ...rest } = data;
+            if (payload.live && typeof payload.live === 'object') {
+                const seq = payload.live.scene?.seq;
+                if (isFirstLoad) {
+                    lastLiveSceneSeqRef.current = typeof seq === 'number' ? seq : 0;
+                }
+                setLiveState(payload.live);
+            } else if (isFirstLoad && lastLiveSceneSeqRef.current === null) {
+                lastLiveSceneSeqRef.current = 0;
+            }
+        };
+
+        const applyData = (data, isFirstLoad) => {
+            if (!isMounted || !data || typeof data !== 'object') return;
+            const remoteSeq = data.live?.scene?.seq;
+            const shouldAnimateRemoteScene =
+                !isFirstLoad &&
+                typeof remoteSeq === 'number' &&
+                lastLiveSceneSeqRef.current !== null &&
+                remoteSeq > lastLiveSceneSeqRef.current;
+
+            const prevStage = shouldAnimateRemoteScene ? captureCurrentStageSnapshot() : null;
+            if (typeof remoteSeq === 'number') lastLiveSceneSeqRef.current = remoteSeq;
+
+            const nextBoxes = data.boxes ? { ...DEFAULT_BOXES, ...data.boxes } : boxesRef.current;
+            if (data.boxes) {
+                boxesRef.current = nextBoxes;
+                setBoxes(nextBoxes);
+            }
+            const nextVis = {
+                ...DEFAULT_VISIBILITY,
+                ...(data.showFaceCam !== undefined ? { faceCam: data.showFaceCam } : {}),
+                ...(data.showHandCam !== undefined ? { handCam: data.showHandCam } : {}),
+                ...(data.showRoomCam !== undefined ? { roomCam: data.showRoomCam } : {}),
+                ...(data.boxVisibility ?? {}),
+            };
+            visRef.current = nextVis;
+            const nextEls = data.elements ?? elementsRef.current;
+            if (data.elements) elementsRef.current = nextEls;
+            if (Array.isArray(data.zOrder)) {
+                zOrderRef.current = data.zOrder;
+                setZOrder(data.zOrder);
+            }
+
+            const { boxes: _b, live: _live, serverNow: _sn, _liveOnly: _lo, zOrder: _z, ...rest } = data;
+            void _b; void _live; void _sn; void _lo; void _z;
             setLayoutSettings(s => ({
                 ...s,
                 ...rest,
-                boxVisibility: {
-                    ...DEFAULT_VISIBILITY,
-                    // Honor legacy show* flags only when explicitly present —
-                    // an empty slot stays all-false (nothing active by default).
-                    ...(data.showFaceCam !== undefined ? { faceCam: data.showFaceCam } : {}),
-                    ...(data.showHandCam !== undefined ? { handCam: data.showHandCam } : {}),
-                    ...(data.showRoomCam !== undefined ? { roomCam: data.showRoomCam } : {}),
-                    ...(data.boxVisibility ?? {}),
-                },
+                boxVisibility: nextVis,
             }));
+
+            layoutHydratedRef.current = true;
+
+            if (shouldAnimateRemoteScene && prevStage) {
+                const trans = data.live?.scene?.transition ?? data.sceneTransition ?? layoutSettingsRef.current.sceneTransition ?? DEFAULT_SCENE_TRANSITION;
+                startSceneTransition(prevStage, trans, nextBoxes, nextVis, nextEls);
+            } else {
+                placeCameras(nextBoxes, nextVis, nextEls);
+            }
         };
 
         const tick = async (force) => {
             if (!isMounted) return;
-            // Don't poll while editing (we're the writer) or when the tab is
-            // hidden (e.g. a backgrounded editor) — except a forced first load.
             const skip = !force && (editModeRef.current || document.hidden);
             if (!skip) {
+                const epochAtStart = writeEpochRef.current;
+                activeAbort?.abort();
+                const ac = new AbortController();
+                activeAbort = ac;
                 try {
-                    // Send the version we already have: the server answers 204
-                    // (no body) when nothing changed, so idle polls cost bytes,
-                    // not the whole design. OBS (?obs) also skips the saved
-                    // layouts library, which only the editor uses.
-                    // The editor only needs the library once (it's the one
-                    // writing it); later polls skip it too.
                     let url = layoutUrl();
-                    if (lastVer) url += `&v=${encodeURIComponent(lastVer)}`;
+                    if (lastVerRef.current) url += `&v=${encodeURIComponent(lastVerRef.current)}`;
                     if (CLEAN_MODE || libLoaded || isDefaultRoom()) url += '&lite=1';
-                    const res = await fetch(url, { cache: 'no-store' });
-                    if (res.status === 204) {
+                    const res = await fetch(url, { cache: 'no-store', signal: ac.signal });
+                    if (!isMounted || writeEpochRef.current !== epochAtStart) {
+                        // A local write happened while this GET was in flight — discard stale response.
+                    } else if (res.status === 204) {
                         misses++;
                     } else if (res.ok) {
-                        const { _v, ...data } = await res.json();
-                        lastVer = _v ?? null;
+                        const raw = await res.json();
+                        if (!isMounted || writeEpochRef.current !== epochAtStart) return;
+                        const { _v, ...data } = raw;
+                        lastVerRef.current = _v ?? null;
                         const firstLoad = !libLoaded;
                         if (!libLoaded) {
                             libLoaded = true;
+                            layoutHydratedRef.current = true;
                             if (isDefaultRoom()) data.layouts = loadLocalLibrary();
                         }
-                        const sig = JSON.stringify(data);
-                        if (sig !== lastSig) {
-                            lastSig = sig;
+
+                        syncClockAndLive(data, firstLoad);
+
+                        if (data._liveOnly) {
                             misses = 0;
-                            applyData(data);
                         } else {
-                            misses++;
+                            const designForSig = { ...data };
+                            delete designForSig.serverNow;
+                            delete designForSig.live;
+                            const sig = JSON.stringify(designForSig);
+                            if (sig !== lastSig) {
+                                lastSig = sig;
+                                misses = 0;
+                                applyData(data, firstLoad);
+                            } else {
+                                misses++;
+                            }
                         }
                         if (firstLoad && isMounted) setLibReady(true);
                     }
-                } catch { /* offline / transient — try again next tick */ }
+                } catch { /* aborted / offline / transient — try again next tick */ }
             }
             if (!isMounted) return;
             const delay = misses >= POLL_MISSES_TO_SLOW ? POLL_SLOW : POLL_FAST;
@@ -876,9 +1439,10 @@ const OverlayLayout = () => {
         return () => {
             isMounted = false;
             clearTimeout(timer);
+            activeAbort?.abort();
             document.removeEventListener('visibilitychange', onVisible);
         };
-    }, []);
+    }, [placeCameras, captureCurrentStageSnapshot, startSceneTransition]);
 
     // ?kit=<starter id> — sent by the /templates/* landing pages. Installs that
     // starter once the library has loaded, then drops the param so a reload
@@ -898,12 +1462,14 @@ const OverlayLayout = () => {
 
     // ── Derived state ────────────────────────────────────────────────────────
     const {
-        showFaceCam, showHandCam, showRoomCam,
-        useGPU, tasks = [], elements = [],
+        tasks = [],
         background, boxVisibility = DEFAULT_VISIBILITY,
         theme = DEFAULT_THEME,
         twitchChannel = '',
+        sceneTransition: storedTransition,
     } = layoutSettings;
+    const elements = useMemo(() => layoutSettings.elements ?? [], [layoutSettings.elements]);
+    const sceneTransition = useMemo(() => resolveTransition(storedTransition), [storedTransition]);
 
     const selectedElement = elements.find(el => el.id === selectedElementId) ?? null;
     const selectedCamera = CAMERA_IDS.includes(selectedBox) ? selectedBox : null;
@@ -912,25 +1478,27 @@ const OverlayLayout = () => {
     const shouldRenderBox = (id) => getBoxVisible(id);
 
     // ── Live mood ── one source of truth the mood-ring and the pet both read.
-    // The ring element holds the manual mood + auto-cycle settings; when auto is
-    // on we advance through MOODS on a timer. Pets placed anywhere mirror it.
+    // Wall-clock aligned with `serverOffsetMs` so editor and ?obs advance identically.
     const moodRingEl = elements.find(e => e.type === 'moodring' && !e.hidden);
     const moodAuto = !!moodRingEl?.auto;
     const moodCycleSec = Math.max(3, moodRingEl?.cycleSec ?? 20);
     const moodManual = moodRingEl?.mood ?? 'chill';
-    const [moodTick, setMoodTick] = useState(0);
+    const [moodNowMs, setMoodNowMs] = useState(() => Date.now());
     useEffect(() => {
-        if (!moodAuto) return;
-        // A manual pick mid-cycle restarts the timer so the chosen mood gets a
-        // full interval before auto-cycle advances past it.
-        setMoodTick(0);
-        const id = setInterval(() => setMoodTick(t => t + 1), moodCycleSec * 1000);
-        return () => clearInterval(id);
-    }, [moodAuto, moodCycleSec, moodManual]);
-    // Auto-cycle walks MOODS starting from the manually picked mood, so picking
-    // a mood applies immediately even while auto is on.
+        if (!moodAuto) return undefined;
+        const sync = () => setMoodNowMs(Date.now());
+        const initId = setTimeout(sync, 0);
+        const id = setInterval(sync, 1000);
+        return () => {
+            clearTimeout(initId);
+            clearInterval(id);
+        };
+    }, [moodAuto]);
     const moodBaseIdx = Math.max(0, MOODS.findIndex(m => m.id === moodManual));
-    const currentMood = moodAuto ? MOODS[(moodBaseIdx + moodTick) % MOODS.length].id : moodManual;
+    const currentMood = moodAuto
+        ? MOODS[(moodBaseIdx + Math.floor(Math.max(0, moodNowMs + serverOffsetMs) / (moodCycleSec * 1000))) % MOODS.length].id
+        : moodManual;
+    useEffect(() => { currentMoodRef.current = currentMood; }, [currentMood]);
 
     // ── Stable callbacks for tasks ───────────────────────────────────────────
     const onTasksChange = useCallback((t) => updateLayout({ tasks: t }), [updateLayout]);
@@ -938,82 +1506,57 @@ const OverlayLayout = () => {
     // ── Memoised DraggableBox children — prevents re-renders on box drag ─────
     // Each child only re-creates when its own data changes (stream, social info, etc.)
     const camStyles = layoutSettings.camStyles ?? NO_CAM_STYLES;
-    // The frame (border/glow) is CSS and renders in OBS. The CENTER is a
-    // placeholder: in the editor it shows a label so you can position the box;
-    // in live/OBS mode it's fully transparent so the native OBS webcam shows
-    // through the frame.
-    const framedCam = (slot, label, showLabel) => {
-        const cs = camStyles[slot] ?? DEFAULT_CAM_STYLE;
-        return (
-            <CameraFrame frame={cs.frame} radius={cs.radius} accent={cs.accent ?? theme.accent} accent2={cs.accent2 ?? theme.accent2}>
-                <div style={{
-                    width: '100%', height: '100%', boxSizing: 'border-box',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: showLabel ? 'rgba(255,255,255,0.04)' : 'transparent',
-                    border: showLabel ? '1px dashed rgba(255,255,255,0.18)' : 'none',
-                }}>
-                    {showLabel && (
-                        <div style={{ textAlign: 'center', pointerEvents: 'none', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1 }}>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.7)' }}>{label}</div>
-                            <div style={{ fontSize: 8, marginTop: 3, color: 'rgba(255,255,255,0.4)' }}>OBS source</div>
-                        </div>
-                    )}
-                </div>
-            </CameraFrame>
-        );
-    };
-    const faceCamChild = useMemo(() => framedCam('faceCam', 'CAM 01', editMode), [editMode, camStyles.faceCam, theme.accent, theme.accent2]);
-    const handCamChild = useMemo(() => framedCam('handCam', 'HAND', editMode), [editMode, camStyles.handCam, theme.accent, theme.accent2]);
-    const roomCamChild = useMemo(() => framedCam('roomCam', 'ROOM', editMode), [editMode, camStyles.roomCam, theme.accent, theme.accent2]);
+    const veilFace = !editMode && !!camVeil.faceCam;
+    const veilHand = !editMode && !!camVeil.handCam;
+    const veilRoom = !editMode && !!camVeil.roomCam;
+    const faceCamChild = useMemo(() => renderFramedCam('faceCam', 'CAM 01', editMode, camStyles, theme, veilFace), [editMode, camStyles, theme, veilFace]);
+    const handCamChild = useMemo(() => renderFramedCam('handCam', 'HAND', editMode, camStyles, theme, veilHand), [editMode, camStyles, theme, veilHand]);
+    const roomCamChild = useMemo(() => renderFramedCam('roomCam', 'ROOM', editMode, camStyles, theme, veilRoom), [editMode, camStyles, theme, veilRoom]);
     const aiCompanionChild = useMemo(() => (
-        <div className="w-full h-full overflow-hidden"><AICompanion /></div>
+        <ScaledContent><div className="w-full h-full overflow-hidden"><AICompanion /></div></ScaledContent>
     ), []);
     const currentTaskChild = useMemo(() => (
-        <div className="w-full h-full bg-black/80 backdrop-blur-md border-t border-white/5 overflow-hidden">
-            <CurrentTask tasks={tasks} onTasksChange={onTasksChange} />
-        </div>
+        <ScaledContent>
+            <div className="w-full h-full bg-black/80 backdrop-blur-md border-t border-white/5 overflow-hidden">
+                <CurrentTask tasks={tasks} onTasksChange={onTasksChange} />
+            </div>
+        </ScaledContent>
     ), [tasks, onTasksChange]);
 
     // In edit mode the canvas is a 16:9 preview inside the editor shell.
     // In live mode the canvas is position:absolute filling the viewport.
-    // canvasRef always points to the same DOM node so video streams survive the toggle.
+    // canvasRef always points to the same DOM node so transitions & ResizeObserver stay intact.
     const inEditor = editMode && !isRecording;
+    const editorCheckerBg = {
+        backgroundImage: 'linear-gradient(45deg,#1a1a1a 25%,transparent 25%),linear-gradient(-45deg,#1a1a1a 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#1a1a1a 75%),linear-gradient(-45deg,transparent 75%,#1a1a1a 75%)',
+        backgroundSize: '20px 20px',
+        backgroundPosition: '0 0,0 10px,10px -10px,-10px 0px',
+        backgroundColor: '#111',
+    };
     const canvasBg = (!background || background.type === 'transparent')
-        ? (inEditor ? {
-            backgroundImage: 'linear-gradient(45deg,#1a1a1a 25%,transparent 25%),linear-gradient(-45deg,#1a1a1a 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#1a1a1a 75%),linear-gradient(-45deg,transparent 75%,#1a1a1a 75%)',
-            backgroundSize: '20px 20px', backgroundPosition: '0 0,0 10px,10px -10px,-10px 0px', backgroundColor: '#111',
-          } : {})
+        ? (inEditor ? editorCheckerBg : {})
         : bgToStyle(background);
-    const editorWorkspaceBg = inEditor && background && background.type !== 'transparent'
-        ? bgToStyle(background)
-        : { background: '#050510' };
+    const editorWorkspaceBg = { background: '#070712' };
     // Live preview in a normal browser (phone/desktop) — NOT the OBS source.
-    // OBS sizes its browser source to 16:9, so there we fill inset:0. Everywhere
-    // else (e.g. a phone in portrait, or a non-16:9 window) we letterbox the
-    // canvas to 16:9 so the %-based overlay doesn't stretch.
     const livePreview = !inEditor && !isRecording && !CLEAN_MODE;
-
-    // In live preview the canvas is letterboxed, leaving bars on the sides/top.
-    // To avoid a visible seam between the bars and the canvas, paint the scene
-    // background on the ROOT (full viewport) and keep the scaled canvas itself
-    // transparent — one continuous backdrop. (OBS keeps bg on the canvas so the
-    // source stays correctly sized/transparent.)
-    const livePreviewBg = (!background || background.type === 'transparent')
-        ? { background: '#050510' }
-        : bgToStyle(background);
-    const activeCanvasBg = inEditor ? {} : (livePreview ? {} : canvasBg);
+    const livePreviewBg = { background: '#050510' };
 
     // Camera cut-outs: OBS draws cameras *under* this browser source, so the
     // scene background (and any backdrop element) gets transparent holes where
-    // visible cams / game-capture frames sit. Without them an opaque Just
-    // Chatting background would hide the webcam.
+    // visible cams / game-capture frames sit. Painted inside the 16:9 canvas in
+    // ALL modes (editor sees checkerboard cutouts, OBS sees transparent holes)
+    // so transitions crossfade/slide cleanly inside the frame.
     const visFace = getBoxVisible('faceCam'), visHand = getBoxVisible('handCam'), visRoom = getBoxVisible('roomCam');
     const camHoles = useMemo(() => sceneHoles({
         boxes, camStyles, elements,
         boxVisibility: { faceCam: visFace, handCam: visHand, roomCam: visRoom },
     }, theme), [boxes, camStyles, elements, visFace, visHand, visRoom, theme]);
-    const canvasBgLayer = Object.keys(activeCanvasBg).length > 0
-        ? { ...activeCanvasBg, ...holeMask(camHoles) }
+    const captureHoles = useMemo(
+        () => elements.filter(e => e.type === 'frame' && e.hole && !e.hidden && e.box).map(e => ({ id: e.id, ...frameHoleGeometry(e, theme) })),
+        [elements, theme],
+    );
+    const canvasBgLayer = Object.keys(canvasBg).length > 0
+        ? { ...canvasBg, ...holeMask(camHoles) }
         : null;
 
     return (
@@ -1023,7 +1566,7 @@ const OverlayLayout = () => {
         }}>
             {/* OBS recording flash */}
             {isRecording && (
-                <motion.div
+                <MotionDiv
                     initial={{ opacity: 0 }}
                     animate={{ opacity: [0, 0.2, 0] }}
                     transition={{ duration: 2, repeat: Infinity }}
@@ -1035,10 +1578,10 @@ const OverlayLayout = () => {
             {inEditor && (<>
                 {/* Header bar */}
                 <div style={{
-                    position: 'absolute', top: 0, left: 0, right: 0, height: 40, zIndex: 400,
+                    position: 'absolute', top: 0, left: 0, right: 0, height: editorHeaderHeight, zIndex: 400,
                     background: 'rgba(8,8,18,0.98)', borderBottom: '1px solid rgba(255,255,255,0.07)',
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '0 12px 0 10px',
+                    padding: '4px 10px', flexWrap: isNarrow ? 'wrap' : 'nowrap',
                 }}>
                     {/* Left: layers toggle (mobile) + logo + title */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1048,30 +1591,26 @@ const OverlayLayout = () => {
                                 title="Layers & sources"
                                 style={{
                                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-                                    height: 26, padding: '0 9px', flexShrink: 0, cursor: 'pointer',
-                                    borderRadius: 6, border: '1px solid rgba(99,102,241,0.4)',
-                                    background: drawerOpen ? 'rgba(79,70,229,0.4)' : 'rgba(99,102,241,0.16)',
-                                    color: '#c7d2fe', fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1,
+                                    minHeight: 44, padding: '0 12px', flexShrink: 0, cursor: 'pointer',
+                                    borderRadius: 6, border: '1px solid rgba(255,121,86,0.4)',
+                                    background: drawerOpen ? 'rgba(242,96,56,0.4)' : 'rgba(255,121,86,0.16)',
+                                    color: '#f7d5c9', fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1,
                                 }}
                             >
                                 <Layers size={13} />Layers
                             </button>
                         )}
                         <a href="/" title="Home" style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}>
-                            <div style={{
-                                width: 18, height: 18, borderRadius: 4, flexShrink: 0,
-                                background: 'rgba(99,102,241,0.25)', border: '1px solid rgba(99,102,241,0.45)',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: '#a5b4fc',
-                            }}><Circle size={8} fill="#a5b4fc" strokeWidth={0} /></div>
+                            <img src="/favicon.svg" alt="" width="22" height="22" style={{ flexShrink: 0 }} />
                             {!isNarrow && (
                                 <span style={{ fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 3, color: 'rgba(255,255,255,0.45)' }}>
-                                    Overlay Studio
+                                    qorpStreamer
                                 </span>
                             )}
                         </a>
                     </div>
                     {/* Right: actions */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: isNarrow ? '100%' : undefined }}>
                         {namingScene ? (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                 <input
@@ -1084,25 +1623,25 @@ const OverlayLayout = () => {
                                     }}
                                     placeholder={`Scene ${(activeLayout?.scenes.length ?? 0) + 1}`}
                                     style={{
-                                        width: 130, height: 22, padding: '0 8px', borderRadius: 5,
-                                        border: '1px solid rgba(99,102,241,0.45)', background: 'rgba(99,102,241,0.12)',
+                                        width: isNarrow ? 76 : 160, height: 42, minWidth: 0, padding: '0 8px', borderRadius: 5,
+                                        border: '1px solid rgba(255,121,86,0.45)', background: 'rgba(255,121,86,0.12)',
                                         color: '#e0e7ff', fontSize: 10, fontFamily: 'monospace', outline: 'none',
                                     }}
                                 />
-                                <HdrBtn active onClick={() => { saveScene(sceneNameDraft); setNamingScene(false); }}>
-                                    <Check size={12} style={{ marginRight: 4 }} />Save
+                                <HdrBtn active title="Save scene" onClick={() => { saveScene(sceneNameDraft); setNamingScene(false); }}>
+                                    <Check size={12} style={{ marginRight: 4 }} />{!isNarrow && 'Save'}
                                 </HdrBtn>
-                                <HdrBtn onClick={() => setNamingScene(false)}><X size={12} /></HdrBtn>
+                                <HdrBtn icon title="Cancel" onClick={() => setNamingScene(false)}><X size={12} /></HdrBtn>
                             </div>
                         ) : (
                             <HdrBtn onClick={() => { setSceneNameDraft(''); setNamingScene(true); }}><Save size={12} style={{ marginRight: 4 }} />Save Scene</HdrBtn>
                         )}
-                        <HdrBtn onClick={resetLayout}><RotateCcw size={12} style={{ marginRight: 4 }} />Reset</HdrBtn>
-                        <HdrBtn icon onClick={() => openHelp('edit', 'edit_header')}><HelpCircle size={12} /></HdrBtn>
+                        <HdrBtn title="Reset" icon={isNarrow} onClick={resetLayout}><RotateCcw size={12} style={{ marginRight: 4 }} />{!isNarrow && 'Reset'}</HdrBtn>
+                        <HdrBtn icon title="Help" onClick={() => openHelp('edit', 'edit_header')}><HelpCircle size={12} /></HdrBtn>
                         <HdrSep />
                         <button
                             onClick={() => { setEditMode(false); setSelectedBox(null); setSelectedElementId(null); setShowBgPanel(false); }}
-                            style={{ padding: '3px 12px', borderRadius: 5, fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1, border: '1px solid rgba(99,102,241,0.45)', background: 'rgba(79,70,229,0.4)', color: '#fff', cursor: 'pointer' }}
+                            style={{ minHeight: 44, padding: '0 10px', borderRadius: 5, fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1, border: '1px solid rgba(255,121,86,0.45)', background: 'rgba(242,96,56,0.4)', color: '#fff', cursor: 'pointer' }}
                         ><Check size={11} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />Done</button>
                     </div>
                 </div>
@@ -1111,13 +1650,13 @@ const OverlayLayout = () => {
                 {isNarrow && drawerOpen && (
                     <div
                         onClick={() => setDrawerOpen(false)}
-                        style={{ position: 'absolute', inset: 0, top: 40, zIndex: 350, background: 'rgba(0,0,0,0.5)' }}
+                        style={{ position: 'absolute', inset: 0, top: editorHeaderHeight, zIndex: 350, background: 'rgba(0,0,0,0.5)' }}
                     />
                 )}
 
                 {/* Left panel: layers + sources — fixed sidebar on desktop, slide-in drawer on phones */}
                 <div style={{
-                    position: 'absolute', top: 40, left: 0, bottom: 0, zIndex: isNarrow ? 360 : 300,
+                    position: 'absolute', top: editorHeaderHeight, left: 0, bottom: 0, zIndex: isNarrow ? 360 : 300,
                     background: 'rgba(7,7,16,0.98)', borderRight: '1px solid rgba(255,255,255,0.07)',
                     overflow: 'hidden', display: 'flex', flexDirection: 'column',
                     ...(isNarrow ? {
@@ -1141,6 +1680,8 @@ const OverlayLayout = () => {
                         onRenameScene={renameScene}
                         onDeleteScene={deleteScene}
                         onOpenLayouts={() => setShowGallery(true)}
+                        sceneTransition={sceneTransition}
+                        onTransitionChange={(t) => updateLayout({ sceneTransition: resolveTransition(t) })}
                         onOpenBackground={() => { setShowBgPanel(v => !v); setShowThemePanel(false); }}
                         onOpenTheme={() => { setShowThemePanel(v => !v); setShowBgPanel(false); }}
                         onResetLayout={resetLayout}
@@ -1154,11 +1695,11 @@ const OverlayLayout = () => {
                         background: 'rgba(7,7,16,0.98)', overflow: 'auto',
                         ...(isNarrow ? {
                             left: 0, right: 0, bottom: 0, top: 'auto', maxHeight: '58vh',
-                            borderTop: '1px solid rgba(99,102,241,0.3)',
+                            borderTop: '1px solid rgba(255,121,86,0.3)',
                             borderTopLeftRadius: 14, borderTopRightRadius: 14,
                             boxShadow: '0 -8px 40px rgba(0,0,0,0.6)',
                         } : {
-                            top: 40, right: 0, bottom: 0, width: RIGHT_PANEL_W,
+                            top: editorHeaderHeight, right: 0, bottom: 0, width: RIGHT_PANEL_W,
                             borderLeft: '1px solid rgba(255,255,255,0.07)',
                         }),
                     }}>
@@ -1185,6 +1726,10 @@ const OverlayLayout = () => {
                                 onDuplicate={() => duplicateElement(selectedElement.id)}
                                 twitchChannel={twitchChannel}
                                 onTwitchChannelChange={(v) => updateLayout({ twitchChannel: v })}
+                                liveState={liveState}
+                                serverOffsetMs={serverOffsetMs}
+                                onLiveAction={handleLiveAction}
+                                theme={theme}
                             />
                         ) : (
                             <CameraEditor
@@ -1222,7 +1767,7 @@ const OverlayLayout = () => {
             {/* In live:   fills the entire viewport absolutely */}
             <div style={{
                 position: 'absolute',
-                top:    inEditor ? 40 : 0,
+                top:    inEditor ? editorHeaderHeight : 0,
                 // On phones the panels float over the canvas, so it spans full width.
                 left:   inEditor && !isNarrow ? 240 : 0,
                 right:  inEditor && !isNarrow ? (rightPanelOpen ? RIGHT_PANEL_W : 0) : 0,
@@ -1236,7 +1781,7 @@ const OverlayLayout = () => {
                 {inEditor && (
                     <div style={{
                         position: 'absolute', inset: 0, pointerEvents: 'none',
-                        backgroundImage: 'radial-gradient(rgba(99,102,241,0.10) 1px, transparent 1px)',
+                        backgroundImage: 'radial-gradient(rgba(255,121,86,0.10) 1px, transparent 1px)',
                         backgroundSize: '24px 24px',
                     }} />
                 )}
@@ -1272,38 +1817,138 @@ const OverlayLayout = () => {
                         }),
                     }}
                 >
-                    {canvasBgLayer && (
-                        <div aria-hidden style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none', ...canvasBgLayer }} />
-                    )}
+                    {(() => {
+                        const transType = exitStage?.transition?.type ?? activeTransition.type;
+                        const transSec = (exitStage?.transition?.durationMs ?? activeTransition.durationMs) / 1000;
+                        const spec = SCENE_TRANSITIONS[transType] ?? SCENE_TRANSITIONS.fade;
+                        const animating = !!exitStage && transSec > 0;
+                        const enterBgOpaque = !!background && background.type !== 'transparent';
+                        const solidExitUnderOpaqueFade = transType === 'fade' && enterBgOpaque;
+                        const enterZ = spec.enterTop || solidExitUnderOpaqueFade ? 20 : 10;
+                        const exitZ = spec.enterTop || solidExitUnderOpaqueFade ? 10 : 15;
 
-                    {/* ── Custom elements ── */}
-                    {elements.map((el, i) => {
-                        if (el.hidden) return null;
                         return (
-                            <ElementBox
-                                key={el.id}
-                                element={el}
-                                zIndex={100 + (elements.length - 1 - i) + (selectedElementId === el.id ? 50 : 0)}
-                                selected={selectedElementId === el.id}
-                                onSelect={selectElement}
-                                onBoxChange={updateElementBox}
-                                onUploadLogo={onUploadLogo}
-                                onElementUpdate={updateElement}
-                                editMode={editMode}
-                                canvasRef={canvasRef}
-                                theme={theme}
-                                mood={currentMood}
-                                channel={twitchChannel}
-                                holes={el.type === 'backdrop' ? camHoles : undefined}
-                            />
-                        );
-                    })}
+                            <>
+                                {/* Exiting frozen scene layer during scene transition */}
+                                {animating && (
+                                    <MotionDiv
+                                        key={exitStage.key}
+                                        initial={solidExitUnderOpaqueFade ? { opacity: 1 } : spec.exit.initial}
+                                        animate={solidExitUnderOpaqueFade ? { opacity: 1 } : spec.exit.animate}
+                                        transition={solidExitUnderOpaqueFade ? { duration: 0 } : {
+                                            duration: transSec,
+                                            ease: spec.ease,
+                                            ...(spec.exit.times ? { times: spec.exit.times } : {}),
+                                        }}
+                                        style={{ position: 'absolute', inset: 0, zIndex: exitZ, pointerEvents: 'none', willChange: 'transform, opacity, clip-path' }}
+                                    >
+                                        <FrozenSceneLayer stage={exitStage} />
+                                    </MotionDiv>
+                                )}
 
-                    {shouldRenderBox('faceCam') && <DraggableBox id="faceCam" title="Face Cam" box={boxes.faceCam} zIndex={getZIndex('faceCam')} selected={selectedBox === 'faceCam'} onSelect={selectBox} onLayerUp={layerUp} onLayerDown={layerDown} onBoxChange={updateBox} editMode={editMode} canvasRef={canvasRef}>{faceCamChild}</DraggableBox>}
-                    {shouldRenderBox('aiCompanion') && <DraggableBox id="aiCompanion" title="AI Companion" box={boxes.aiCompanion} zIndex={getZIndex('aiCompanion')} selected={selectedBox === 'aiCompanion'} onSelect={selectBox} onLayerUp={layerUp} onLayerDown={layerDown} onBoxChange={updateBox} editMode={editMode} canvasRef={canvasRef}>{aiCompanionChild}</DraggableBox>}
-                    {shouldRenderBox('handCam') && <DraggableBox id="handCam" title="Hand Cam" box={boxes.handCam} zIndex={getZIndex('handCam')} selected={selectedBox === 'handCam'} onSelect={selectBox} onLayerUp={layerUp} onLayerDown={layerDown} onBoxChange={updateBox} editMode={editMode} canvasRef={canvasRef}>{handCamChild}</DraggableBox>}
-                    {shouldRenderBox('roomCam') && <DraggableBox id="roomCam" title="Room Cam" box={boxes.roomCam} zIndex={getZIndex('roomCam')} selected={selectedBox === 'roomCam'} onSelect={selectBox} onLayerUp={layerUp} onLayerDown={layerDown} onBoxChange={updateBox} editMode={editMode} canvasRef={canvasRef}>{roomCamChild}</DraggableBox>}
-                    {shouldRenderBox('currentTask') && <DraggableBox id="currentTask" title="Current Task" box={boxes.currentTask} zIndex={getZIndex('currentTask')} selected={selectedBox === 'currentTask'} onSelect={selectBox} onLayerUp={layerUp} onLayerDown={layerDown} onBoxChange={updateBox} editMode={editMode} canvasRef={canvasRef}>{currentTaskChild}</DraggableBox>}
+                                {/* Entering / Active live scene layer */}
+                                <MotionDiv
+                                    key={sceneEpoch}
+                                    data-canvas-stage="1"
+                                    initial={sceneEpoch > 0 && transSec > 0 ? spec.enter.initial : false}
+                                    animate={spec.enter.animate}
+                                    transition={sceneEpoch > 0 && transSec > 0 ? {
+                                        duration: transSec,
+                                        ease: spec.ease,
+                                        ...(spec.enter.times ? { times: spec.enter.times } : {}),
+                                    } : { duration: 0 }}
+                                    onAnimationComplete={animating ? () => finishSceneTransition() : undefined}
+                                    style={{ position: 'absolute', inset: 0, zIndex: enterZ, willChange: 'transform, opacity, clip-path' }}
+                                >
+                                    {inEditor && background && background.type !== 'transparent' && (
+                                        <div aria-hidden style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none', ...editorCheckerBg }} />
+                                    )}
+                                    {canvasBgLayer && (
+                                        <div aria-hidden style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none', ...canvasBgLayer }} />
+                                    )}
+                                    {!inEditor && captureHoles.map(h => (
+                                        <div
+                                            key={`veil_${h.id}`}
+                                            aria-hidden
+                                            style={{
+                                                position: 'absolute',
+                                                left: `${h.box.x}%`,
+                                                top: `${h.box.y}%`,
+                                                width: `${h.box.w}%`,
+                                                height: `${h.box.h}%`,
+                                                borderRadius: h.radius || 0,
+                                                background: '#070712',
+                                                zIndex: 1,
+                                                opacity: camVeil.holes ? 1 : 0,
+                                                transition: camVeil.holes ? 'none' : 'opacity 160ms ease-out',
+                                                pointerEvents: 'none',
+                                            }}
+                                        />
+                                    ))}
+
+                                    {/* ── Custom elements ── */}
+                                    {elements.map((el, i) => {
+                                        if (el.hidden) return null;
+                                        return (
+                                            <ElementBox
+                                                key={el.id}
+                                                element={el}
+                                                zIndex={100 + (elements.length - 1 - i) + (selectedElementId === el.id ? 50 : 0)}
+                                                selected={selectedElementId === el.id}
+                                                onSelect={selectElement}
+                                                onBoxChange={updateElementBox}
+                                                onUploadLogo={onUploadLogo}
+                                                onElementUpdate={updateElement}
+                                                editMode={editMode}
+                                                canvasRef={canvasRef}
+                                                theme={theme}
+                                                mood={currentMood}
+                                                channel={twitchChannel}
+                                                holes={el.type === 'backdrop' ? camHoles : undefined}
+                                                liveState={liveState}
+                                                serverOffsetMs={serverOffsetMs}
+                                                onLiveAction={handleLiveAction}
+                                            />
+                                        );
+                                    })}
+
+                                    {shouldRenderBox('faceCam') && <DraggableBox id="faceCam" title="Face Cam" box={boxes.faceCam} zIndex={getZIndex('faceCam')} selected={selectedBox === 'faceCam'} onSelect={selectBox} onLayerUp={layerUp} onLayerDown={layerDown} onBoxChange={updateBox} editMode={editMode} canvasRef={canvasRef}>{faceCamChild}</DraggableBox>}
+                                    {shouldRenderBox('aiCompanion') && <DraggableBox id="aiCompanion" title="AI Companion" box={boxes.aiCompanion} zIndex={getZIndex('aiCompanion')} selected={selectedBox === 'aiCompanion'} onSelect={selectBox} onLayerUp={layerUp} onLayerDown={layerDown} onBoxChange={updateBox} editMode={editMode} canvasRef={canvasRef}>{aiCompanionChild}</DraggableBox>}
+                                    {shouldRenderBox('handCam') && <DraggableBox id="handCam" title="Hand Cam" box={boxes.handCam} zIndex={getZIndex('handCam')} selected={selectedBox === 'handCam'} onSelect={selectBox} onLayerUp={layerUp} onLayerDown={layerDown} onBoxChange={updateBox} editMode={editMode} canvasRef={canvasRef}>{handCamChild}</DraggableBox>}
+                                    {shouldRenderBox('roomCam') && <DraggableBox id="roomCam" title="Room Cam" box={boxes.roomCam} zIndex={getZIndex('roomCam')} selected={selectedBox === 'roomCam'} onSelect={selectBox} onLayerUp={layerUp} onLayerDown={layerDown} onBoxChange={updateBox} editMode={editMode} canvasRef={canvasRef}>{roomCamChild}</DraggableBox>}
+                                    {shouldRenderBox('currentTask') && <DraggableBox id="currentTask" title="Current Task" box={boxes.currentTask} zIndex={getZIndex('currentTask')} selected={selectedBox === 'currentTask'} onSelect={selectBox} onLayerUp={layerUp} onLayerDown={layerDown} onBoxChange={updateBox} editMode={editMode} canvasRef={canvasRef}>{currentTaskChild}</DraggableBox>}
+                                </MotionDiv>
+
+                                {/* Dip-to-black curtain overlay for 'fade-dip' */}
+                                {animating && spec.dip && (
+                                    <MotionDiv
+                                        key={`dip_${exitStage.key}`}
+                                        aria-hidden
+                                        initial={{ opacity: 0 }}
+                                        animate={{ opacity: [0, 1, 1, 0] }}
+                                        transition={{ duration: transSec, times: [0, 0.34, 0.66, 1], ease: 'easeInOut' }}
+                                        style={{ position: 'absolute', inset: 0, zIndex: 450, background: '#050510', pointerEvents: 'none' }}
+                                    />
+                                )}
+
+                                {/* Subtle leading-edge accent beam for 'wipe' */}
+                                {animating && spec.wipeEdge && (
+                                    <MotionDiv
+                                        key={`edge_${exitStage.key}`}
+                                        aria-hidden
+                                        initial={{ left: '0%', opacity: 0.9 }}
+                                        animate={{ left: '100%', opacity: 0 }}
+                                        transition={{ duration: transSec, ease: spec.ease }}
+                                        style={{
+                                            position: 'absolute', top: 0, bottom: 0, width: 3, zIndex: 450, pointerEvents: 'none',
+                                            background: `linear-gradient(180deg, transparent, ${theme.accent ?? '#ff7956'}, transparent)`,
+                                            boxShadow: `0 0 18px ${theme.accent ?? '#ff7956'}`,
+                                        }}
+                                    />
+                                )}
+                            </>
+                        );
+                    })()}
 
                     {/* ── Placement layer — click to drop / drag to draw a new element ── */}
                     {inEditor && placingType && (
@@ -1314,13 +1959,13 @@ const OverlayLayout = () => {
                         >
                             <div ref={placePreviewRef} style={{
                                 position: 'absolute', display: 'none', pointerEvents: 'none',
-                                border: '1px dashed rgba(165,180,252,0.9)', background: 'rgba(99,102,241,0.15)', borderRadius: 4,
+                                border: '1px dashed rgba(165,180,252,0.9)', background: 'rgba(255,121,86,0.15)', borderRadius: 4,
                             }} />
                             <div style={{
                                 position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', pointerEvents: 'none',
-                                background: 'rgba(10,10,20,0.9)', border: '1px solid rgba(99,102,241,0.4)', borderRadius: 8,
+                                background: 'rgba(10,10,20,0.9)', border: '1px solid rgba(255,121,86,0.4)', borderRadius: 8,
                                 padding: '5px 12px', fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1,
-                                color: '#a5b4fc', whiteSpace: 'nowrap',
+                                color: '#ff7956', whiteSpace: 'nowrap',
                             }}>
                                 Click or drag to place {placingType} · Esc to cancel
                             </div>
@@ -1354,19 +1999,19 @@ const OverlayLayout = () => {
 
             {/* ── LIVE MODE DOCK — minimal pill; hidden while recording or in ?obs clean mode ── */}
             {!editMode && !isRecording && !CLEAN_MODE && (
-                <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 200 }}>
+                <div style={{ position: 'absolute', bottom: 16, width: 'max-content', maxWidth: 'calc(100% - 16px)', left: '50%', transform: 'translateX(-50%)', zIndex: 200 }}>
                     {dockCollapsed ? (
                         <button
                             onClick={() => setDockCollapsed(false)}
                             title="Show controls"
-                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 56, height: 18, padding: 0, cursor: 'pointer', background: 'rgba(6,6,16,0.7)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 9, color: 'rgba(255,255,255,0.4)', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', transition: 'all 0.15s' }}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 56, height: 44, padding: 0, cursor: 'pointer', background: 'rgba(6,6,16,0.7)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 9, color: 'rgba(255,255,255,0.4)', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', transition: 'all 0.15s' }}
                             onMouseEnter={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.85)'; e.currentTarget.style.background = 'rgba(6,6,16,0.92)'; }}
                             onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.4)'; e.currentTarget.style.background = 'rgba(6,6,16,0.7)'; }}
                         >
                             <GripHorizontal size={14} />
                         </button>
                     ) : (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: isNarrow ? 3 : 2, background: 'rgba(6,6,16,0.88)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: isNarrow ? '6px 8px' : '5px 7px', boxShadow: '0 8px 40px rgba(0,0,0,0.72)', whiteSpace: 'nowrap', maxWidth: 'calc(100vw - 24px)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', justifyContent: 'center', background: 'rgba(6,6,16,0.88)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: isNarrow ? '6px 8px' : '5px 7px', boxShadow: '0 8px 40px rgba(0,0,0,0.72)', whiteSpace: 'nowrap', maxWidth: 'calc(100vw - 24px)' }}>
                         {/* Tools (icon-only, Go Live keeps its label) ┃ content: layouts + current scene */}
                         <DockBtn icon onClick={() => { window.location.href = '/'; }} title="Home">
                             <Home size={13} />
@@ -1390,7 +2035,7 @@ const OverlayLayout = () => {
                         {/* Scene switcher — change scene without entering edit mode */}
                         {activeLayout && activeLayout.scenes.length > 0 && (
                             <div style={{ position: 'relative' }}>
-                                <DockBtn active={dockScenesOpen} onClick={() => setDockScenesOpen(o => !o)} title="Switch scene">
+                                <DockBtn icon={isNarrow} active={dockScenesOpen} onClick={() => setDockScenesOpen(o => !o)} title="Switch scene">
                                     <Film size={12} style={{ marginRight: isNarrow ? 0 : 4 }} />
                                     {!isNarrow && (activeScene?.name ?? 'Scene')}
                                     <ChevronUp size={11} style={{ marginLeft: isNarrow ? 1 : 4, transform: dockScenesOpen ? 'none' : 'rotate(180deg)', transition: 'transform 0.15s', opacity: 0.6 }} />
@@ -1416,17 +2061,17 @@ const OverlayLayout = () => {
                                                         key={s.id}
                                                         onClick={() => { switchScene(s.id); setDockScenesOpen(false); }}
                                                         style={{
-                                                            display: 'flex', alignItems: 'center', gap: 7, padding: '6px 9px', borderRadius: 6,
-                                                            background: isActive ? 'rgba(99,102,241,0.2)' : 'transparent', border: 'none', cursor: 'pointer',
+                                                            display: 'flex', alignItems: 'center', gap: 7, minHeight: 44, padding: '6px 9px', borderRadius: 6,
+                                                            background: isActive ? 'rgba(255,121,86,0.2)' : 'transparent', border: 'none', cursor: 'pointer',
                                                             color: 'rgba(255,255,255,0.85)', fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase',
                                                             letterSpacing: 1, textAlign: 'left', whiteSpace: 'nowrap',
                                                         }}
                                                         onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
                                                         onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
                                                     >
-                                                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: isActive ? '#818cf8' : '#64748b', flexShrink: 0 }} />
+                                                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: isActive ? '#ff7956' : '#64748b', flexShrink: 0 }} />
                                                         <span style={{ flex: 1 }}>{s.name}</span>
-                                                        {isActive && <Check size={11} color="#a5b4fc" />}
+                                                        {isActive && <Check size={11} color="#ff7956" />}
                                                     </button>
                                                 );
                                             })}
@@ -1448,9 +2093,9 @@ const OverlayLayout = () => {
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: 12 }}
                         transition={{ duration: 0.18 }}
-                        style={{ position: 'absolute', bottom: 64, left: '50%', transform: 'translateX(-50%)', zIndex: 400, maxWidth: 380, background: 'rgba(6,6,16,0.96)', backdropFilter: 'blur(24px)', border: '1px solid rgba(99,102,241,0.35)', borderRadius: 12, padding: '12px 16px', boxShadow: '0 8px 40px rgba(0,0,0,0.72)', color: 'rgba(255,255,255,0.9)', fontFamily: 'monospace' }}
+                        style={{ position: 'absolute', bottom: 64, left: '50%', transform: 'translateX(-50%)', zIndex: 400, maxWidth: 380, background: 'rgba(6,6,16,0.96)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,121,86,0.35)', borderRadius: 12, padding: '12px 16px', boxShadow: '0 8px 40px rgba(0,0,0,0.72)', color: 'rgba(255,255,255,0.9)', fontFamily: 'monospace' }}
                     >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: '#a5b4fc' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: '#ff7956' }}>
                             <Check size={13} />{liveToast.fresh ? 'Room created' : 'Live'} · {liveToast.room}
                         </div>
                         <div style={{ marginTop: 6, fontSize: 10.5, lineHeight: 1.5, color: 'rgba(255,255,255,0.6)' }}>
@@ -1483,8 +2128,8 @@ const OverlayLayout = () => {
     );
 };
 
-const HdrBtn = ({ children, active, icon, onClick }) => (
-    <button onClick={onClick} style={{ padding: icon ? '3px 6px' : '3px 9px', borderRadius: 5, fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1, border: '1px solid', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'all 0.1s', ...(active ? { background: 'rgba(99,102,241,0.2)', borderColor: 'rgba(99,102,241,0.4)', color: '#a5b4fc' } : { background: 'transparent', borderColor: 'rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.38)' }) }}>
+const HdrBtn = ({ children, active, icon, title, onClick }) => (
+    <button onClick={onClick} title={title} aria-label={title} style={{ minHeight: 44, minWidth: 44, justifyContent: 'center', padding: icon ? '0 8px' : '0 10px', borderRadius: 6, fontSize: 11, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1, border: '1px solid', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'all 0.1s', ...(active ? { background: 'rgba(255,121,86,0.2)', borderColor: 'rgba(255,121,86,0.4)', color: '#ff7956' } : { background: 'transparent', borderColor: 'rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.38)' }) }}>
         {children}
     </button>
 );
@@ -1498,9 +2143,12 @@ const DockBtn = ({ children, active, icon, disabled, onClick, title }) => (
         title={title}
         aria-label={icon ? title : undefined}
         style={{
-            padding: icon ? '4px 7px' : '4px 10px',
+            minHeight: 44,
+            minWidth: 44,
+            justifyContent: 'center',
+            padding: icon ? '0 10px' : '0 12px',
             borderRadius: 8,
-            fontSize: 9,
+            fontSize: 11,
             fontFamily: 'monospace',
             textTransform: 'uppercase',
             letterSpacing: 1,
@@ -1511,7 +2159,7 @@ const DockBtn = ({ children, active, icon, disabled, onClick, title }) => (
             display: 'flex', alignItems: 'center', gap: 4,
             lineHeight: 1,
             ...(active
-                ? { background: 'rgba(79,70,229,0.52)', borderColor: 'rgba(99,102,241,0.5)', color: '#fff' }
+                ? { background: 'rgba(242,96,56,0.52)', borderColor: 'rgba(255,121,86,0.5)', color: '#fff' }
                 : { background: 'transparent', borderColor: 'rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.45)' }
             ),
         }}

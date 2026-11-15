@@ -602,6 +602,15 @@ export const THEMES = [
         backdrop: 'vicebeach', textFx: 'neon', lowerThird: 'neon',
     },
     {
+        id: 'xaxinim-vice', name: 'Xaxinim · Vice Beach',
+        accent: '#e89cad', accent2: '#f8c6a4',
+        textColor: '#fff4df', panelColor: '#211b30',
+        fontFamily: "'Inter', system-ui, sans-serif",
+        displayFont: "'Pacifico', 'Fredoka', cursive",
+        cornerRadius: 6, frameStyle: 'gradient',
+        backdrop: 'vicedusk', textFx: 'plain', lowerThird: 'bar',
+    },
+    {
         id: 'nether', name: 'Minecraft Nether',
         accent: '#ff7a1a', accent2: '#8a2323',
         textColor: '#fff1e6', panelColor: '#1e0b0b',

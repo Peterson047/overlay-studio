@@ -61,7 +61,7 @@ const StyleSelect = ({ caption, value, options, onChange }) => (
     <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ width: 64, flexShrink: 0, fontSize: 8.5, color: 'rgba(255,255,255,0.35)', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 0.5 }}>{caption}</span>
         <select value={value ?? ''} onChange={e => onChange(e.target.value)} style={selectStyle}>
-            {options.map(o => <option key={o.id ?? o.value} value={o.id ?? o.value} style={{ background: '#0d0d1a' }}>{o.label}</option>)}
+            {options.map(o => <option key={o.id ?? o.value} value={o.id ?? o.value} style={{ background: '#20231f' }}>{o.label}</option>)}
         </select>
     </label>
 );
@@ -87,9 +87,9 @@ const ColorPick = ({ value, onChange, caption }) => (
 const tabStyle = (active) => ({
     flex: 1, padding: '5px 4px', textAlign: 'center', fontSize: 10,
     fontFamily: 'monospace', textTransform: 'capitalize', borderRadius: 5, cursor: 'pointer',
-    background: active ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.05)',
-    border: active ? '1px solid rgba(99,102,241,0.5)' : '1px solid rgba(255,255,255,0.08)',
-    color: active ? '#a5b4fc' : 'rgba(255,255,255,0.5)',
+    background: active ? 'rgba(255,121,86,0.25)' : 'rgba(255,255,255,0.05)',
+    border: active ? '1px solid rgba(255,121,86,0.5)' : '1px solid rgba(255,255,255,0.08)',
+    color: active ? '#ff7956' : 'rgba(255,255,255,0.5)',
 });
 
 // ── Main panel ─────────────────────────────────────────────────────────────
@@ -141,7 +141,7 @@ const ThemePanel = ({ theme, onApply, onChange, onInstallPack, onClose }) => {
                                         background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
                                         transition: 'all 0.12s',
                                     }}
-                                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.4)'; }}
+                                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.borderColor = 'rgba(255,121,86,0.4)'; }}
                                     onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; }}
                                 >
                                     <span style={{ width: 28, height: 28, borderRadius: 6, flexShrink: 0, background: packGradient(pack) }} />
@@ -167,8 +167,8 @@ const ThemePanel = ({ theme, onApply, onChange, onInstallPack, onClose }) => {
                                 style={{
                                     ...swatch(th),
                                     cursor: 'pointer',
-                                    border: t.id === th.id ? '2px solid #818cf8' : '2px solid rgba(255,255,255,0.08)',
-                                    boxShadow: t.id === th.id ? '0 0 0 1px rgba(99,102,241,0.4)' : 'none',
+                                    border: t.id === th.id ? '2px solid #ff7956' : '2px solid rgba(255,255,255,0.08)',
+                                    boxShadow: t.id === th.id ? '0 0 0 1px rgba(255,121,86,0.4)' : 'none',
                                 }}
                             />
                         ))}

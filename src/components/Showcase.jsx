@@ -164,7 +164,7 @@ const VerticalFrame = ({ step }) => {
             background: `radial-gradient(ellipse at 50% 30%, ${theme.accent}33, transparent 60%), radial-gradient(ellipse at 50% 85%, ${theme.accent2}26, transparent 55%), #07070f`,
         }}>
             <div style={{ position: 'absolute', top: 150, left: 0, right: 0, textAlign: 'center' }}>
-                <div style={{ fontSize: 30, letterSpacing: 8, textTransform: 'uppercase', opacity: 0.6 }}>Overlay Studio</div>
+                <div style={{ fontSize: 30, letterSpacing: 8, textTransform: 'uppercase', opacity: 0.6 }}>qorpStreamer</div>
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, delay: 0.15 }}
                     style={{ fontSize: 108, fontWeight: 700, letterSpacing: -2, marginTop: 34, lineHeight: 1 }}>
                     {step.starter.name}
@@ -183,7 +183,7 @@ const VerticalFrame = ({ step }) => {
             <div style={{ position: 'absolute', bottom: 210, left: 0, right: 0, textAlign: 'center' }}>
                 <div style={{ fontSize: 40, opacity: 0.8 }}>{step.starter.tagline}</div>
                 <div style={{ display: 'inline-block', marginTop: 40, padding: '18px 40px', borderRadius: 999, background: '#f1f1f5', color: '#0b0b12', fontSize: 38, fontWeight: 700 }}>
-                    Free · streamoverlay.kazekit.com
+                    qorpStreamer · Qorp
                 </div>
             </div>
         </div>
@@ -226,7 +226,7 @@ const Cover = () => {
             <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, #07070f 0%, rgba(7,7,15,0.95) 36%, rgba(7,7,15,0.3) 50%, transparent 60%)' }} />
             {/* headline */}
             <div style={{ position: 'absolute', left: 70, top: 0, bottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', width: 640 }}>
-                <div style={{ fontSize: 22, letterSpacing: 6, textTransform: 'uppercase', color: '#a5b4fc', fontWeight: 600 }}>Overlay Studio</div>
+                <div style={{ fontSize: 22, letterSpacing: 6, textTransform: 'uppercase', color: '#a5b4fc', fontWeight: 600 }}>qorpStreamer</div>
                 <div style={{ fontSize: 112, fontWeight: 700, lineHeight: 0.95, letterSpacing: -3, marginTop: 22 }}>
                     FREE<br />STREAM<br />
                     <span style={{ background: 'linear-gradient(90deg, #818cf8, #f472b6, #fbbf24)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>OVERLAYS</span>
@@ -288,9 +288,9 @@ const Player = () => {
                 <AnimatePresence mode="sync">
                     <motion.div key={key} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: FADE_S }}
                         style={{ position: 'absolute', inset: 0 }}>
-                        {(phase === 'wait' || phase === 'intro') && <Card vertical={vertical} title="Overlay Studio" sub="Free stream overlays for OBS — design in your browser" />}
+                        {(phase === 'wait' || phase === 'intro') && <Card vertical={vertical} title="qorpStreamer" sub="Free stream overlays for OBS — design in your browser" />}
                         {step && (vertical ? <VerticalFrame step={step} /> : <><Scene step={step} /><Caption step={step} /></>)}
-                        {(phase === 'outro' || phase === 'done') && <Card vertical={vertical} title={`${count} free templates`} sub="Twitch chat · alerts · animated scenes · one link into OBS" foot="streamoverlay.kazekit.com" />}
+                        {(phase === 'outro' || phase === 'done') && <Card vertical={vertical} title={`${count} free templates`} sub="Twitch chat · alerts · animated scenes · one link into OBS" foot="qorpStreamer · Qorp" />}
                     </motion.div>
                 </AnimatePresence>
             </div>

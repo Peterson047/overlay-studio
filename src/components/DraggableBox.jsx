@@ -1,4 +1,4 @@
-import { memo, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 
 const MIN_W_PCT = 4;
 const MIN_H_PCT = 3;
@@ -27,16 +27,18 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 // While any box is being dragged or resized, suppress hover-state changes
 // so other boxes don't re-render as the mouse passes over them.
 let anyDragging = false;
+const setAnyDragging = (active) => { anyDragging = active; };
 
 const DraggableBox = ({
     id, title, box, zIndex,
     onBoxChange, onSelect, onLayerUp, onLayerDown,
     editMode, selected,
     canvasRef, children, extraStyle,
+    overflowHidden = false,
 }) => {
     const elRef   = useRef(null);
     const boxRef  = useRef(box);
-    boxRef.current = box;
+    useEffect(() => { boxRef.current = box; }, [box]);
 
     // Tracks whether the current press turned into a drag/resize.
     // onClick fires after pointerup — if didDrag is true, it's not a plain click so skip selection.
@@ -66,12 +68,13 @@ const DraggableBox = ({
         e.stopPropagation();
 
         didDrag.current = false;
-        anyDragging = true;
+        setAnyDragging(true);
         // NOTE: do NOT call setHovered here — any React state update schedules a
         // re-render which resets el.style.left back to the % value mid-drag.
 
         const canvas = canvasRef.current;
-        if (!canvas) return;
+        if (!canvas || !canvas.offsetWidth || !canvas.offsetHeight) { setAnyDragging(false); return; }
+        const { offsetWidth: W, offsetHeight: H } = canvas;
         const el = elRef.current;
 
         // el.offsetLeft/Top are canvas-relative px — same space as CSS left/top px.
@@ -80,29 +83,32 @@ const DraggableBox = ({
         const startTop    = el.offsetTop;
         const startMouseX = e.clientX;
         const startMouseY = e.clientY;
+        const maxL = Math.max(0, W - el.offsetWidth);
+        const maxT = Math.max(0, H - el.offsetHeight);
 
         const onMove = (ev) => {
             const dx = ev.clientX - startMouseX;
             const dy = ev.clientY - startMouseY;
             if (!didDrag.current && Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
             didDrag.current = true;
-            el.style.left = `${startLeft + dx}px`;
-            el.style.top  = `${startTop  + dy}px`;
+            el.style.left = `${clamp(startLeft + dx, 0, maxL)}px`;
+            el.style.top  = `${clamp(startTop  + dy, 0, maxT)}px`;
         };
 
         const onUp = (ev) => {
             window.removeEventListener('pointermove', onMove);
             window.removeEventListener('pointerup',   onUp);
             window.removeEventListener('pointercancel', onUp);
-            anyDragging = false;
+            setAnyDragging(false);
             if (didDrag.current) {
                 const dx = ev.clientX - startMouseX;
                 const dy = ev.clientY - startMouseY;
-                onBoxChange(id, {
-                    ...boxRef.current,
-                    x: ((startLeft + dx) / canvas.offsetWidth)  * 100,
-                    y: ((startTop  + dy) / canvas.offsetHeight) * 100,
-                });
+                const b = boxRef.current;
+                const x = clamp(((startLeft + dx) / W) * 100, 0, Math.max(0, 100 - b.w));
+                const y = clamp(((startTop  + dy) / H) * 100, 0, Math.max(0, 100 - b.h));
+                el.style.left = `${x}%`;
+                el.style.top  = `${y}%`;
+                onBoxChange(id, { ...b, x, y });
             }
         };
 
@@ -116,12 +122,13 @@ const DraggableBox = ({
         e.preventDefault();
         e.stopPropagation();
 
-        didDrag.current = false;
-        anyDragging = true;
-
         const canvas = canvasRef.current;
-        if (!canvas) return;
+        if (!canvas || !canvas.offsetWidth || !canvas.offsetHeight) return;
         const { offsetWidth: W, offsetHeight: H } = canvas;
+
+        didDrag.current = false;
+        setAnyDragging(true);
+
         const el = elRef.current;
         const b  = boxRef.current;
 
@@ -142,10 +149,10 @@ const DraggableBox = ({
             if (!didDrag.current && Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
             didDrag.current = true;
             nL = left; nT = top; nW = width; nH = height;
-            if (dir.includes('e')) nW = Math.max(minW, width  + dx);
-            if (dir.includes('s')) nH = Math.max(minH, height + dy);
-            if (dir.includes('w')) { nW = Math.max(minW, width  - dx); nL = left + width  - nW; }
-            if (dir.includes('n')) { nH = Math.max(minH, height - dy); nT = top  + height - nH; }
+            if (dir.includes('e')) nW = clamp(width  + dx, minW, Math.max(minW, W - left));
+            if (dir.includes('s')) nH = clamp(height + dy, minH, Math.max(minH, H - top));
+            if (dir.includes('w')) { nW = clamp(width  - dx, minW, Math.max(minW, left + width));  nL = left + width  - nW; }
+            if (dir.includes('n')) { nH = clamp(height - dy, minH, Math.max(minH, top  + height)); nT = top  + height - nH; }
             el.style.left   = `${nL}px`;
             el.style.top    = `${nT}px`;
             el.style.width  = `${nW}px`;
@@ -156,14 +163,17 @@ const DraggableBox = ({
             window.removeEventListener('pointermove', onMove);
             window.removeEventListener('pointerup',   onUp);
             window.removeEventListener('pointercancel', onUp);
-            anyDragging = false;
+            setAnyDragging(false);
             if (didDrag.current) {
-                onBoxChange(id, {
-                    x: (nL / W) * 100,
-                    y: (nT / H) * 100,
-                    w: (nW / W) * 100,
-                    h: (nH / H) * 100,
-                });
+                const x = clamp((nL / W) * 100, 0, Math.max(0, 100 - MIN_W_PCT));
+                const y = clamp((nT / H) * 100, 0, Math.max(0, 100 - MIN_H_PCT));
+                const w = clamp((nW / W) * 100, MIN_W_PCT, Math.max(MIN_W_PCT, 100 - x));
+                const h = clamp((nH / H) * 100, MIN_H_PCT, Math.max(MIN_H_PCT, 100 - y));
+                el.style.left   = `${x}%`;
+                el.style.top    = `${y}%`;
+                el.style.width  = `${w}%`;
+                el.style.height = `${h}%`;
+                onBoxChange(id, { x, y, w, h });
             }
         };
 
@@ -202,13 +212,11 @@ const DraggableBox = ({
                 top:      `${box.y}%`,
                 width:    `${box.w}%`,
                 height:   `${box.h}%`,
-                // Visible in edit mode so the tag and handles can sit on/over the edge;
-                // the content wrapper below still clips the element itself.
-                overflow:     editMode ? 'visible' : 'hidden',
+                // Visible unless overflowHidden is explicitly requested outside edit mode.
+                overflow:     editMode || !overflowHidden ? 'visible' : 'hidden',
                 boxSizing:    'border-box',
                 outline,
                 outlineOffset: selected ? 1 : 0,
-                borderRadius: 4,
                 zIndex,
                 cursor:       editMode ? 'move' : undefined,
                 touchAction:  editMode ? 'none' : undefined,
@@ -262,7 +270,7 @@ const DraggableBox = ({
             )}
 
             {/* ── Content — always full height ── */}
-            <div style={{ width: '100%', height: '100%', overflow: 'hidden', borderRadius: 4 }}>
+            <div style={{ width: '100%', height: '100%', overflow: overflowHidden ? 'hidden' : 'visible' }}>
                 {children}
             </div>
 
@@ -318,10 +326,11 @@ export default memo(DraggableBox, (prev, next) => {
     const pb = prev.box, nb = next.box;
     return (
         pb.x === nb.x && pb.y === nb.y && pb.w === nb.w && pb.h === nb.h &&
-        prev.zIndex    === next.zIndex    &&
-        prev.selected  === next.selected  &&
-        prev.editMode  === next.editMode  &&
-        prev.children  === next.children  &&
+        prev.zIndex         === next.zIndex         &&
+        prev.selected       === next.selected       &&
+        prev.editMode       === next.editMode       &&
+        prev.overflowHidden === next.overflowHidden &&
+        prev.children       === next.children       &&
         // extraStyle: both undefined, or same opacity/pointerEvents
         prev.extraStyle === next.extraStyle
     );

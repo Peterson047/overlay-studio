@@ -1,10 +1,12 @@
-import { AlignCenter, AlignLeft, AlignRight, ChevronDown, Copy, Eye, EyeOff, Info, RefreshCw, Trash2, Upload, X } from 'lucide-react';
+import { AlignCenter, AlignLeft, AlignRight, ChevronDown, Copy, Eye, EyeOff, Info, Pause, Play, RefreshCw, RotateCcw, SkipForward, Trash2, Upload, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { scoresUrl } from '../config';
 import { MOODS, DEFAULT_MOOD } from '../theme/moods';
+import { DEFAULT_THEME, resolveToken } from '../theme/themes';
 import { PETS, DEFAULT_PET, PetMascot } from './pets';
 import { BACKDROPS, FRAME_STYLES, LOWER_THIRDS, TEXT_FX, isGraphicFrame } from './graphics';
 import { normalizeChannel } from '../live/twitchChat';
+import { scaleImageFile } from '../utils/imageScale.js';
 import { ADD_SECTIONS, ELEMENT_TYPE_MAP } from './elementCatalog';
 
 // "Theme" entries store the token, so the element follows theme switches.
@@ -66,15 +68,62 @@ const TextArea = ({ value, onChange, placeholder, rows = 4, style = {} }) => (
     />
 );
 
-const NumberInput = ({ value, onChange, min, max, step = 1, style = {} }) => (
-    <input
-        type="number"
-        value={value ?? ''}
-        min={min} max={max} step={step}
-        onChange={e => onChange(Number(e.target.value))}
-        style={{ ...FIELD, width: 64, padding: '0 4px', textAlign: 'center', fontVariantNumeric: 'tabular-nums', ...style }}
-    />
-);
+const NumberInput = ({ value, onChange, min, max, step = 1, style = {} }) => {
+    const [focused, setFocused] = useState(false);
+    const [draft, setDraft] = useState(() => (value == null || value === '' ? '' : String(value)));
+
+    const clamp = (n) => {
+        let out = n;
+        if (typeof min === 'number') out = Math.max(min, out);
+        if (typeof max === 'number') out = Math.min(max, out);
+        return out;
+    };
+
+    const displayValue = focused ? draft : (value == null || value === '' ? '' : String(value));
+
+    const handleFocus = () => {
+        setFocused(true);
+        setDraft(value == null || value === '' ? '' : String(value));
+    };
+
+    const handleChange = (e) => {
+        const next = e.target.value;
+        setDraft(next);
+        if (next.trim() === '' || next === '-' || next === '.' || next === '-.') return;
+        const parsed = Number(next);
+        if (Number.isFinite(parsed)) onChange(clamp(parsed));
+    };
+
+    const handleBlur = () => {
+        setFocused(false);
+        const trimmed = draft.trim();
+        const parsed = trimmed === '' ? NaN : Number(trimmed);
+        if (Number.isFinite(parsed)) {
+            const clamped = clamp(parsed);
+            setDraft(String(clamped));
+            if (clamped !== value) onChange(clamped);
+        } else if (value != null && value !== '') {
+            setDraft(String(value));
+        } else {
+            const fallback = typeof min === 'number' ? min : 0;
+            setDraft(String(fallback));
+            onChange(fallback);
+        }
+    };
+
+    return (
+        <input
+            type="number"
+            value={displayValue}
+            min={min} max={max} step={step}
+            onFocus={handleFocus}
+            onChange={handleChange}
+            onBlur={handleBlur}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+            style={{ ...FIELD, width: 64, padding: '0 4px', textAlign: 'center', fontVariantNumeric: 'tabular-nums', ...style }}
+        />
+    );
+};
 
 // A label + control row: the label sits in a fixed left column so every
 // control in the panel lines up. `stack` puts the label above wide content.
@@ -89,23 +138,65 @@ const Group = ({ label, children, stack = false }) => (
     </div>
 );
 
-const ColorInput = ({ value, onChange, label }) => {
-    const token = typeof value === 'string' && value.startsWith('@');
+const normalizeHex = (raw, fallback = '#ffffff') => {
+    if (typeof raw !== 'string') return fallback;
+    const s = raw.trim();
+    if (/^#[0-9a-f]{6}$/i.test(s)) return s.toLowerCase();
+    const short = s.match(/^#([0-9a-f]{3})$/i);
+    if (short) {
+        const [r, g, b] = short[1];
+        return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+    }
+    const rgb = s.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+    if (rgb) {
+        const toHex = (n) => Math.max(0, Math.min(255, Number(n))).toString(16).padStart(2, '0');
+        return `#${toHex(rgb[1])}${toHex(rgb[2])}${toHex(rgb[3])}`;
+    }
+    return fallback;
+};
+
+const resolveColorInfo = (value, theme = DEFAULT_THEME, fallback = '#ffffff') => {
+    const isToken = typeof value === 'string' && value.startsWith('@');
+    if (!isToken) {
+        const hex = normalizeHex(value, fallback);
+        return { isToken: false, token: null, swatchCss: value || hex, hex, label: value ? String(value).toUpperCase() : hex.toUpperCase() };
+    }
+    const mapped = value === '@primary' ? theme.accent : resolveToken(value, theme);
+    const resolvedStr = typeof mapped === 'string' && !mapped.startsWith('@') ? mapped : (theme.accent ?? fallback);
+    const hex = normalizeHex(resolvedStr, normalizeHex(theme.accent, fallback));
+    return { isToken: true, token: value, swatchCss: hex, hex, label: hex.toUpperCase() };
+};
+
+const ColorInput = ({ value, onChange, label, theme = DEFAULT_THEME, fallback = '#ffffff' }) => {
+    const { isToken, token, swatchCss, hex, label: hexLabel } = resolveColorInfo(value, theme, fallback);
     const swatch = (
-        <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }}>
             <label style={{ position: 'relative', width: 26, height: 26, borderRadius: 7, flexShrink: 0, cursor: 'pointer', overflow: 'hidden',
-                background: token ? 'conic-gradient(#818cf8, #f472b6, #facc15, #34d399, #818cf8)' : (value || '#ffffff'),
-                boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.18)` }}>
+                background: swatchCss,
+                boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.2)` }}>
                 <input
                     type="color"
-                    value={token || !value ? '#ffffff' : value}
+                    value={hex}
                     onChange={e => onChange(e.target.value)}
                     style={{ position: 'absolute', inset: 0, opacity: 0, width: '100%', height: '100%', cursor: 'pointer', padding: 0, border: 'none' }}
                 />
             </label>
-            <span style={{ fontSize: 11, color: token ? C.accent : C.dim, fontFamily: token ? 'inter, system-ui' : 'ui-monospace, monospace' }}>
-                {token ? 'Theme colour' : (value?.toUpperCase() || '#FFFFFF')}
-            </span>
+            {isToken ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                    <span style={{
+                        fontSize: 10, fontFamily: 'ui-monospace, monospace', lineHeight: 1.4,
+                        padding: '1px 6px', borderRadius: 99,
+                        background: 'rgba(129,140,248,0.16)', border: '1px solid rgba(129,140,248,0.35)', color: '#c7d2fe',
+                    }}>
+                        {token}
+                    </span>
+                    <span style={{ fontSize: 10.5, color: C.dim, fontFamily: 'ui-monospace, monospace' }}>{hexLabel}</span>
+                </span>
+            ) : (
+                <span style={{ fontSize: 11, color: C.dim, fontFamily: 'ui-monospace, monospace' }}>
+                    {hexLabel}
+                </span>
+            )}
         </span>
     );
     return label ? <Group label={label}>{swatch}</Group> : swatch;
@@ -128,17 +219,19 @@ const Slider = ({ value, onChange, min = 0, max = 1, step = 0.01, label, display
     return label ? <Group label={label}>{control}</Group> : control;
 };
 
-const ToggleBtn = ({ active, onClick, children, title }) => (
+const ToggleBtn = ({ active, onClick, children, title, disabled = false }) => (
     <button
         onClick={onClick}
         title={title}
+        disabled={disabled}
         style={{
-            height: 26, padding: '0 10px', borderRadius: 7, cursor: 'pointer', lineHeight: 1,
+            height: 26, padding: '0 10px', borderRadius: 7, cursor: disabled ? 'not-allowed' : 'pointer', lineHeight: 1,
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4,
             fontSize: 11.5, fontWeight: 600, fontFamily: 'inter, system-ui',
             background: active ? C.accentBg : C.field,
             border: `1px solid ${active ? 'rgba(129,140,248,0.65)' : C.line}`,
             color: active ? '#c7d2fe' : C.dim,
+            opacity: disabled ? 0.45 : 1,
             transition: 'background 0.12s, border-color 0.12s, color 0.12s',
         }}
     >
@@ -261,7 +354,7 @@ const fmtDay = (iso) => {
 
 // Channel field that commits on Enter / blur, so typing a name doesn't open a
 // Twitch connection for every partial name on the way.
-const ChannelInput = ({ value, onCommit }) => {
+const ChannelInput = ({ value, onCommit, placeholder = 'yourchannel' }) => {
     const [draft, setDraft] = useState(value ?? '');
     const [prev, setPrev] = useState(value);
     if (prev !== value) { setPrev(value); setDraft(value ?? ''); }
@@ -275,7 +368,7 @@ const ChannelInput = ({ value, onCommit }) => {
         <TextInput
             value={draft}
             onChange={setDraft}
-            placeholder="yourchannel"
+            placeholder={placeholder}
             style={{ width: 140, borderColor: bad ? 'rgba(248,113,113,0.6)' : undefined }}
             onBlur={commit}
             onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
@@ -283,7 +376,158 @@ const ChannelInput = ({ value, onCommit }) => {
     );
 };
 
-const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel = '', onTwitchChannelChange }) => {
+const BoxCoordInput = ({ value, onCommit, min = 0, max = 100, step = 0.5 }) => {
+    const rounded = Math.round((value ?? 0) * 10) / 10;
+    const [focused, setFocused] = useState(false);
+    const [draft, setDraft] = useState(() => String(rounded));
+    const displayValue = focused ? draft : String(rounded);
+
+    const handleChange = (e) => {
+        const next = e.target.value;
+        setDraft(next);
+        if (next.trim() === '' || next === '-' || next === '.' || next === '-.') return;
+        const parsed = Number(next);
+        if (Number.isFinite(parsed)) onCommit(parsed);
+    };
+
+    const handleBlur = () => {
+        setFocused(false);
+        const trimmed = draft.trim();
+        const parsed = trimmed === '' ? NaN : Number(trimmed);
+        if (Number.isFinite(parsed)) {
+            const clamped = Math.max(min, Math.min(max, Math.round(parsed * 10) / 10));
+            setDraft(String(clamped));
+            onCommit(clamped);
+        } else {
+            setDraft(String(rounded));
+        }
+    };
+
+    return (
+        <input
+            type="number"
+            step={step}
+            min={min}
+            max={max}
+            value={displayValue}
+            onFocus={() => { setFocused(true); setDraft(String(rounded)); }}
+            onChange={handleChange}
+            onBlur={handleBlur}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+            style={{ flex: 1, width: '100%', minWidth: 0, background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: 0 }}
+        />
+    );
+};
+
+const fmtTimerSec = (sec) => {
+    const clamped = Math.max(0, Math.round(Number(sec) || 0));
+    const hrs = Math.floor(clamped / 3600);
+    const mins = Math.floor((clamped % 3600) / 60);
+    const secs = clamped % 60;
+    if (hrs > 0) return `${hrs}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+};
+
+const computeCountdownRemaining = (liveEntry, durationSec, nowMs) => {
+    const dur = Math.max(0, Number(durationSec) || 0);
+    const state = liveEntry?.state ?? 'stopped';
+    if (!liveEntry || state === 'stopped') {
+        return { state: 'stopped', remainingSec: dur };
+    }
+    if (state === 'paused') {
+        const rem = liveEntry.remainingSec != null ? Number(liveEntry.remainingSec) : dur;
+        return { state: 'paused', remainingSec: Math.max(0, Math.round(rem)) };
+    }
+    const baseRem = liveEntry.remainingSec != null ? Number(liveEntry.remainingSec) : dur;
+    const anchor = Number(liveEntry.anchorAt);
+    const elapsed = Number.isFinite(anchor) ? Math.max(0, (nowMs - anchor) / 1000) : 0;
+    return { state: 'running', remainingSec: Math.max(0, Math.round(baseRem - elapsed)) };
+};
+
+const computePomodoroSnapshot = (liveEntry, workMin, breakMin, nowMs) => {
+    const phase = liveEntry?.phase === 'break' ? 'break' : 'work';
+    const phaseDur = (phase === 'break' ? Math.max(1, Number(breakMin) || 5) : Math.max(1, Number(workMin) || 25)) * 60;
+    const count = Math.max(0, Number(liveEntry?.count ?? 0));
+    const state = liveEntry?.state === 'running' ? 'running' : 'paused';
+    if (state === 'running') {
+        const baseRem = liveEntry?.remainingSec != null ? Number(liveEntry.remainingSec) : phaseDur;
+        const anchor = Number(liveEntry?.anchorAt);
+        const elapsed = Number.isFinite(anchor) ? Math.max(0, (nowMs - anchor) / 1000) : 0;
+        return { state: 'running', phase, remainingSec: Math.max(0, Math.round(baseRem - elapsed)), count };
+    }
+    const rem = liveEntry?.remainingSec != null ? Number(liveEntry.remainingSec) : phaseDur;
+    return { state: 'paused', phase, remainingSec: Math.max(0, Math.round(rem)), count };
+};
+
+// Count goals in scorer text while tolerating spaces, hyphens, accents, and digits inside player names.
+const countScorerGoals = (s) => {
+    const text = String(s || '').trim();
+    if (!text) return 0;
+    let total = 0;
+    for (const rawSeg of text.split(/[\n,;]+/)) {
+        const seg = rawSeg.trim();
+        if (!seg) continue;
+        const primeMatches = seg.match(/(?:^|[\s(])\d{1,3}(?:\s*\+\s*\d{1,2})?\s*['′’]/g);
+        if (primeMatches) {
+            total += primeMatches.length;
+            continue;
+        }
+        const stripped = seg.replace(/\([^)]*\)/g, '').trim();
+        if (/^\d{1,3}(?:\s*\+\s*\d{1,2})?$/.test(stripped) || /^[\p{L}\p{N}\s.'’-]+\s+\d{1,3}(?:\s*\+\s*\d{1,2})?$/u.test(stripped)) {
+            total += 1;
+        }
+    }
+    return total;
+};
+
+const ChannelOverrideFields = ({ roomChannel, onRoomChannelChange, elementChannel, onElementChannelChange }) => {
+    const room = normalizeChannel(roomChannel);
+    const override = normalizeChannel(elementChannel);
+    return (
+        <>
+            {onRoomChannelChange && (
+                <Group label="Room channel">
+                    <ChannelInput value={roomChannel} onCommit={onRoomChannelChange} placeholder="yourchannel" />
+                </Group>
+            )}
+            <Group label="Box channel">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: 1, minWidth: 0 }}>
+                    <ChannelInput
+                        value={elementChannel ?? ''}
+                        onCommit={v => onElementChannelChange(v || '')}
+                        placeholder={room ? `Inherit #${room}` : 'Inherit room'}
+                    />
+                    {override && (
+                        <ToggleBtn active={false} onClick={() => onElementChannelChange('')} title="Revert to global room channel">
+                            Inherit
+                        </ToggleBtn>
+                    )}
+                </div>
+            </Group>
+            <div style={{ fontSize: 10.5, color: override ? '#a5b4fc' : C.faint, lineHeight: 1.4 }}>
+                {override
+                    ? `Using #${override} for this box only (overrides room channel).`
+                    : room
+                        ? `Inheriting global room channel (#${room}).`
+                        : 'Inheriting global room channel (none set yet).'}
+            </div>
+        </>
+    );
+};
+
+const ElementEditor = ({
+    element,
+    onChange,
+    onUpdate,
+    onDelete,
+    onDuplicate,
+    twitchChannel = '',
+    onTwitchChannelChange,
+    liveState = {},
+    serverOffsetMs = 0,
+    onLiveAction,
+    theme = DEFAULT_THEME,
+}) => {
     const fileRef = useRef(null);
     // Two-step delete: the first click arms it; selecting another element resets.
     const [confirmDelete, setConfirmDelete] = useState(false);
@@ -293,6 +537,18 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
     // selected. `null` while loading; otherwise { configured, matches: [...] }.
     const [matchFeed, setMatchFeed] = useState(null);
     const [matchQuery, setMatchQuery] = useState('');
+    const liveTimer = element?.id ? liveState?.timers?.[element.id] : null;
+    const isTimerRunning = (element?.type === 'countdown' || element?.type === 'pomodoro') && liveTimer?.state === 'running';
+    const [tickNow, setTickNow] = useState(() => Date.now());
+    useEffect(() => {
+        if (!isTimerRunning) return undefined;
+        const initId = setTimeout(() => setTickNow(Date.now()), 0);
+        const intervalId = setInterval(() => setTickNow(Date.now()), 250);
+        return () => {
+            clearTimeout(initId);
+            clearInterval(intervalId);
+        };
+    }, [isTimerRunning]);
     useEffect(() => {
         if (element?.type !== 'match') return;
         let alive = true;
@@ -304,19 +560,27 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
     }, [element?.type, element?.id]);
     if (!element) return null;
 
-    const set = (key, val) => onChange({ [key]: val });
+    const applyElementChange = onChange ?? onUpdate;
+    const fallbackUpdate = onUpdate ?? onChange;
+    const set = (key, val) => applyElementChange?.({ [key]: val });
     const { type } = element;
     const isClipShape = ['triangle', 'diamond', 'hexagon', 'star'].includes(type);
+    const isShapeFill = type === 'divider' || type === 'shape' || type === 'circle' || isClipShape;
     const isMoodEl = ['moodring', 'pet'].includes(type);
     const isText = ['text', 'lowerthird', 'clock', 'countdown', 'live', 'social', 'pomodoro', 'daycounter', 'ticker'].includes(type);
     const isAutoText = ['clock', 'countdown', 'pomodoro', 'daycounter', 'ticker'].includes(type); // content handled by custom controls (or auto-generated), no generic text input
+    const nowSyncedMs = tickNow + serverOffsetMs;
 
-    const handleLogoUpload = (e) => {
-        const file = e.target.files?.[0];
+    const handleLogoUpload = async (e) => {
+        const input = e.target;
+        const file = input.files?.[0];
         if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (ev) => onChange({ src: ev.target.result });
-        reader.readAsDataURL(file);
+        try {
+            const src = await scaleImageFile(file, { maxDim: 480, preserveAlpha: true });
+            applyElementChange?.({ src });
+        } finally {
+            input.value = '';
+        }
     };
 
     const meta = ELEMENT_TYPE_MAP[type];
@@ -327,7 +591,7 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
         const n = Math.round(Number(v) * 10) / 10;
         if (!Number.isFinite(n)) return;
         const max = k === 'x' ? 100 - box.w : k === 'y' ? 100 - box.h : 100;
-        onChange({ box: { ...box, [k]: Math.max(k === 'w' || k === 'h' ? 1 : 0, Math.min(max, n)) } });
+        applyElementChange?.({ box: { ...box, [k]: Math.max(k === 'w' || k === 'h' ? 1 : 0, Math.min(max, n)) } });
     };
 
     return (
@@ -371,23 +635,83 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                     </Group>
                 )}
 
-                {/* ── Countdown duration ── */}
-                {type === 'countdown' && (
-                    <Group label="Duration">
-                        <NumberInput
-                            value={Math.floor((element.durationSec ?? 0) / 60)}
-                            onChange={v => set('durationSec', Math.max(0, v) * 60 + (element.durationSec ?? 0) % 60)}
-                            min={0} max={180} style={{ width: 52 }}
-                        />
-                        <span style={UNIT}>min</span>
-                        <NumberInput
-                            value={(element.durationSec ?? 0) % 60}
-                            onChange={v => set('durationSec', Math.floor((element.durationSec ?? 0) / 60) * 60 + Math.min(59, Math.max(0, v)))}
-                            min={0} max={59} style={{ width: 52 }}
-                        />
-                        <span style={UNIT}>sec</span>
-                    </Group>
-                )}
+                {/* ── Countdown duration + live controls ── */}
+                {type === 'countdown' && (() => {
+                    const durationSec = Math.max(0, Number(element.durationSec ?? 0));
+                    const cdSnap = computeCountdownRemaining(liveTimer, durationSec, nowSyncedMs);
+                    const isRunning = cdSnap.state === 'running';
+                    const playCountdown = () => {
+                        const now = Date.now() + serverOffsetMs;
+                        setTickNow(Date.now());
+                        const rem = cdSnap.state === 'paused' && cdSnap.remainingSec > 0 ? cdSnap.remainingSec : durationSec;
+                        onLiveAction?.('timers', element.id, {
+                            kind: 'countdown',
+                            state: 'running',
+                            durationSec,
+                            remainingSec: rem,
+                            anchorAt: now,
+                        });
+                    };
+                    const pauseCountdown = () => {
+                        const now = Date.now() + serverOffsetMs;
+                        const rem = computeCountdownRemaining(liveTimer, durationSec, now).remainingSec;
+                        onLiveAction?.('timers', element.id, {
+                            kind: 'countdown',
+                            state: 'paused',
+                            durationSec,
+                            remainingSec: rem,
+                            anchorAt: now,
+                        });
+                    };
+                    const resetCountdown = () => {
+                        const now = Date.now() + serverOffsetMs;
+                        onLiveAction?.('timers', element.id, {
+                            kind: 'countdown',
+                            state: 'stopped',
+                            durationSec,
+                            remainingSec: durationSec,
+                            anchorAt: now,
+                        });
+                    };
+                    return (
+                        <>
+                            <Group label="Duration">
+                                <NumberInput
+                                    value={Math.floor((element.durationSec ?? 0) / 60)}
+                                    onChange={v => set('durationSec', Math.max(0, v) * 60 + (element.durationSec ?? 0) % 60)}
+                                    min={0} max={180} style={{ width: 52 }}
+                                />
+                                <span style={UNIT}>min</span>
+                                <NumberInput
+                                    value={(element.durationSec ?? 0) % 60}
+                                    onChange={v => set('durationSec', Math.floor((element.durationSec ?? 0) / 60) * 60 + Math.min(59, Math.max(0, v)))}
+                                    min={0} max={59} style={{ width: 52 }}
+                                />
+                                <span style={UNIT}>sec</span>
+                            </Group>
+                            <Group label="Live">
+                                <ToggleBtn active={isRunning} disabled={isRunning} onClick={playCountdown} title="Start or resume countdown">
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                        <Play size={11} /> Play
+                                    </span>
+                                </ToggleBtn>
+                                <ToggleBtn active={cdSnap.state === 'paused'} disabled={!isRunning} onClick={pauseCountdown} title="Pause countdown">
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                        <Pause size={11} /> Pause
+                                    </span>
+                                </ToggleBtn>
+                                <ToggleBtn active={false} onClick={resetCountdown} title="Reset countdown">
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                        <RotateCcw size={11} /> Reset
+                                    </span>
+                                </ToggleBtn>
+                            </Group>
+                            <div style={{ fontSize: 10.5, color: isRunning ? '#86efac' : C.dim, fontFamily: 'ui-monospace, monospace' }}>
+                                {fmtTimerSec(cdSnap.remainingSec)} · {cdSnap.state === 'running' ? 'Running' : cdSnap.state === 'paused' ? 'Paused' : 'Stopped'}
+                            </div>
+                        </>
+                    );
+                })()}
 
                 {/* ── Day counter: day number + labels ── */}
                 {type === 'daycounter' && (
@@ -428,7 +752,7 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                 {/* ── LIVE badge: dot colour + pulse ── */}
                 {type === 'live' && (
                     <Group label="Dot">
-                        <ColorInput value={element.dotColor || '#ef4444'} onChange={v => set('dotColor', v)} />
+                        <ColorInput value={element.dotColor || '#ef4444'} onChange={v => set('dotColor', v)} theme={theme} />
                         <ToggleBtn active={element.pulse !== false} onClick={() => set('pulse', !(element.pulse !== false))} title="Pulse animation">Pulse</ToggleBtn>
                     </Group>
                 )}
@@ -518,7 +842,7 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                         <Group label="Movement">
                             <ToggleBtn
                                 active={!element.walk}
-                                onClick={() => onChange({ walk: false })}
+                                onClick={() => applyElementChange?.({ walk: false })}
                                 title="Pet stays put in its box"
                             >
                                 Stay
@@ -526,7 +850,7 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                             <ToggleBtn
                                 active={!!element.walk}
                                 title="Pet roams a full-width floor lane"
-                                onClick={() => onChange({
+                                onClick={() => applyElementChange?.({
                                     walk: true,
                                     // Expand the box into a full-width lane so the pet has room to
                                     // roam (the box clips, so a small box would hide the walking).
@@ -589,7 +913,7 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                             <NumberInput value={element.spinSec ?? 4} onChange={v => set('spinSec', Math.max(1, Math.min(15, v)))} min={1} max={15} style={{ width: 52 }} />
                             <span style={UNIT}>sec</span>
                         </Group>
-                        <ColorInput value={element.fontColor} onChange={v => set('fontColor', v)} label="Label color" />
+                        <ColorInput value={element.fontColor} onChange={v => set('fontColor', v)} label="Label color" theme={theme} />
                         <Group label="Auto-spin">
                             <ToggleBtn active={!!element.auto} onClick={() => set('auto', !element.auto)} title="Spin automatically">
                                 {element.auto ? 'On' : 'Off'}
@@ -601,8 +925,25 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                                 </>
                             )}
                         </Group>
+                        <Group label="Live">
+                            <ToggleBtn
+                                active={false}
+                                onClick={() => {
+                                    const count = Math.max(2, (element.options ?? []).length);
+                                    const idx = Math.floor(Math.random() * count);
+                                    if (onLiveAction) {
+                                        onLiveAction('triggers', element.id, { kind: 'wheel', idx, spinSec: element.spinSec ?? 4 });
+                                    } else {
+                                        fallbackUpdate?.({ spin: { idx, at: Date.now() } });
+                                    }
+                                }}
+                                title="Trigger a wheel spin now"
+                            >
+                                Spin Wheel Now
+                            </ToggleBtn>
+                        </Group>
                         <Hint>
-                            Click the wheel's centre to spin. 2–8 options.
+                            Click the wheel's centre (or Spin Wheel Now) to spin. 2–8 options.
                         </Hint>
                     </>
                 )}
@@ -624,31 +965,125 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                                 {NOTE_PAPERS.map(p => {
                                     const active = (element.paperColor || '#fde68a').toLowerCase() === p.paper;
                                     return (
-                                        <button key={p.paper} onClick={() => onChange({ paperColor: p.paper, fontColor: p.ink })} title={p.label}
+                                        <button key={p.paper} onClick={() => applyElementChange?.({ paperColor: p.paper, fontColor: p.ink })} title={p.label}
                                             style={{ width: 22, height: 22, borderRadius: 5, background: p.paper, cursor: 'pointer',
                                                 border: active ? '2px solid #fff' : '2px solid rgba(255,255,255,0.2)',
                                                 boxShadow: active ? '0 0 6px rgba(255,255,255,0.5)' : 'none', flexShrink: 0 }} />
                                     );
                                 })}
-                                <ColorInput value={element.paperColor || '#fde68a'} onChange={v => set('paperColor', v)} />
+                                <ColorInput value={element.paperColor || '#fde68a'} onChange={v => set('paperColor', v)} theme={theme} />
                             </div>
                         </div>
-                        <ColorInput value={element.fontColor || '#3a2f10'} onChange={v => set('fontColor', v)} label="Ink (text)" />
+                        <ColorInput value={element.fontColor || '#3a2f10'} onChange={v => set('fontColor', v)} label="Ink (text)" theme={theme} />
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 120 }}>
                             <Slider label="Tilt" value={element.tilt ?? -3} onChange={v => set('tilt', v)} min={-12} max={12} step={1} displayValue={`${element.tilt ?? -3}°`} />
                         </div>
                     </>
                 )}
 
-                {/* ── Pomodoro: work / break minutes ── */}
-                {type === 'pomodoro' && (
-                    <Group label="Intervals">
-                        <NumberInput value={element.workMin ?? 25} onChange={v => set('workMin', Math.max(1, v))} min={1} max={180} style={{ width: 52 }} />
-                        <span style={UNIT}>focus</span>
-                        <NumberInput value={element.breakMin ?? 5} onChange={v => set('breakMin', Math.max(1, v))} min={1} max={60} style={{ width: 52 }} />
-                        <span style={UNIT}>break</span>
-                    </Group>
-                )}
+                {/* ── Pomodoro: work / break minutes + live controls ── */}
+                {type === 'pomodoro' && (() => {
+                    const workMin = Math.max(1, Number(element.workMin ?? 25));
+                    const breakMin = Math.max(1, Number(element.breakMin ?? 5));
+                    const pomoSnap = computePomodoroSnapshot(liveTimer, workMin, breakMin, nowSyncedMs);
+                    const isRunning = pomoSnap.state === 'running';
+                    const playPomodoro = () => {
+                        const now = Date.now() + serverOffsetMs;
+                        setTickNow(Date.now());
+                        const snap = computePomodoroSnapshot(liveTimer, workMin, breakMin, now);
+                        const phaseDur = (snap.phase === 'break' ? breakMin : workMin) * 60;
+                        const rem = snap.remainingSec > 0 ? snap.remainingSec : phaseDur;
+                        onLiveAction?.('timers', element.id, {
+                            kind: 'pomodoro',
+                            state: 'running',
+                            phase: snap.phase,
+                            workMin,
+                            breakMin,
+                            remainingSec: rem,
+                            count: snap.count,
+                            anchorAt: now,
+                        });
+                    };
+                    const pausePomodoro = () => {
+                        const now = Date.now() + serverOffsetMs;
+                        const snap = computePomodoroSnapshot(liveTimer, workMin, breakMin, now);
+                        onLiveAction?.('timers', element.id, {
+                            kind: 'pomodoro',
+                            state: 'paused',
+                            phase: snap.phase,
+                            workMin,
+                            breakMin,
+                            remainingSec: snap.remainingSec,
+                            count: snap.count,
+                            anchorAt: now,
+                        });
+                    };
+                    const skipPomodoroPhase = () => {
+                        const now = Date.now() + serverOffsetMs;
+                        const snap = computePomodoroSnapshot(liveTimer, workMin, breakMin, now);
+                        const nextPhase = snap.phase === 'work' ? 'break' : 'work';
+                        const nextCount = snap.phase === 'work' ? snap.count + 1 : snap.count;
+                        const nextRem = (nextPhase === 'break' ? breakMin : workMin) * 60;
+                        onLiveAction?.('timers', element.id, {
+                            kind: 'pomodoro',
+                            state: snap.state,
+                            phase: nextPhase,
+                            workMin,
+                            breakMin,
+                            remainingSec: nextRem,
+                            count: nextCount,
+                            anchorAt: now,
+                        });
+                    };
+                    const resetPomodoro = () => {
+                        const now = Date.now() + serverOffsetMs;
+                        onLiveAction?.('timers', element.id, {
+                            kind: 'pomodoro',
+                            state: 'paused',
+                            phase: 'work',
+                            workMin,
+                            breakMin,
+                            remainingSec: workMin * 60,
+                            count: 0,
+                            anchorAt: now,
+                        });
+                    };
+                    return (
+                        <>
+                            <Group label="Intervals">
+                                <NumberInput value={element.workMin ?? 25} onChange={v => set('workMin', Math.max(1, v))} min={1} max={180} style={{ width: 52 }} />
+                                <span style={UNIT}>focus</span>
+                                <NumberInput value={element.breakMin ?? 5} onChange={v => set('breakMin', Math.max(1, v))} min={1} max={60} style={{ width: 52 }} />
+                                <span style={UNIT}>break</span>
+                            </Group>
+                            <Group label="Live">
+                                <ToggleBtn active={isRunning} disabled={isRunning} onClick={playPomodoro} title="Start or resume Pomodoro">
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                        <Play size={11} /> Play
+                                    </span>
+                                </ToggleBtn>
+                                <ToggleBtn active={!isRunning && liveTimer?.state === 'paused'} disabled={!isRunning} onClick={pausePomodoro} title="Pause Pomodoro">
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                        <Pause size={11} /> Pause
+                                    </span>
+                                </ToggleBtn>
+                                <ToggleBtn active={false} onClick={skipPomodoroPhase} title="Skip to next phase">
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                        <SkipForward size={11} /> Skip Phase
+                                    </span>
+                                </ToggleBtn>
+                                <ToggleBtn active={false} onClick={resetPomodoro} title="Reset Pomodoro">
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                        <RotateCcw size={11} /> Reset
+                                    </span>
+                                </ToggleBtn>
+                            </Group>
+                            <div style={{ fontSize: 10.5, color: isRunning ? '#86efac' : C.dim, fontFamily: 'ui-monospace, monospace' }}>
+                                {pomoSnap.phase === 'break' ? 'Break' : 'Focus'} · {fmtTimerSec(pomoSnap.remainingSec)} · #{pomoSnap.count} done
+                            </div>
+                        </>
+                    );
+                })()}
 
                 {/* ── Goal bar / liquid goal: label, progress, fill colour ── */}
                 {(type === 'goal' || type === 'liquidgoal') && (
@@ -664,12 +1099,8 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                         <Group label="Text size">
                             <NumberInput value={element.fontSize} onChange={v => set('fontSize', v)} min={8} max={48} />
                         </Group>
-                        <ColorInput value={element.fontColor} onChange={v => set('fontColor', v)} label="Text color" />
-                        <ColorInput
-                            value={typeof element.fillColor === 'string' && element.fillColor.startsWith('@') ? '#6366f1' : element.fillColor}
-                            onChange={v => set('fillColor', v)}
-                            label="Bar color"
-                        />
+                        <ColorInput value={element.fontColor} onChange={v => set('fontColor', v)} label="Text color" theme={theme} />
+                        <ColorInput value={element.fillColor} onChange={v => set('fillColor', v)} label="Bar color" theme={theme} fallback="#6366f1" />
                     </>
                 )}
 
@@ -697,7 +1128,7 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                                     const live = m.status === 'LIVE' || m.status === 'HT';
                                     const right = m.status === 'SCHED' ? fmtKickoff(m.utcDate) : m.status === 'FT' ? 'FT' : m.status === 'HT' ? 'HT' : `${m.minute ?? 0}'`;
                                     return (
-                                        <button key={m.id} onClick={() => onChange({
+                                        <button key={m.id} onClick={() => applyElementChange?.({
                                             matchId: m.id,
                                             teamA: m.home.name, flagA: m.home.flag,
                                             teamB: m.away.name, flagB: m.away.flag,
@@ -728,7 +1159,7 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                         {element.matchId && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <span style={{ fontSize: 9, color: '#4ade80', fontFamily: 'monospace' }}>● Live-linked · auto-updates</span>
-                                <ToggleBtn active={false} onClick={() => onChange({ matchId: null })} title="Unlink and edit by hand">Detach</ToggleBtn>
+                                <ToggleBtn active={false} onClick={() => applyElementChange?.({ matchId: null })} title="Unlink and edit by hand">Detach</ToggleBtn>
                             </div>
                         )}
                         {/* Match + team info for the linked match (free feed fields) */}
@@ -806,9 +1237,7 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                             Scorers are manual — the free feed has no goal data. Separate players with a comma; extra minutes after a name are that player's other goals (Ronaldo 23', 45').
                         </Hint>
                         {(() => {
-                            // One goal per comma/newline token that contains a minute.
-                            const goals = (s) => String(s || '').split(/[,\n]/).filter(t => /\d/.test(t)).length;
-                            const gh = goals(element.scorersHome), ga = goals(element.scorersAway);
+                            const gh = countScorerGoals(element.scorersHome), ga = countScorerGoals(element.scorersAway);
                             const sh = element.scoreA ?? 0, sa = element.scoreB ?? 0;
                             const miss = [];
                             if (gh !== sh) miss.push(`${element.teamA || 'Home'} ${gh}/${sh}`);
@@ -822,12 +1251,8 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                         <Group label="Size">
                             <NumberInput value={element.fontSize ?? 30} onChange={v => set('fontSize', Math.max(14, Math.min(80, v)))} min={14} max={80} style={{ width: 52 }} />
                         </Group>
-                        <ColorInput value={element.fontColor} onChange={v => set('fontColor', v)} label="Name color" />
-                        <ColorInput
-                            value={typeof element.fillColor === 'string' && element.fillColor.startsWith('@') ? '#facc15' : element.fillColor}
-                            onChange={v => set('fillColor', v)}
-                            label="Score color"
-                        />
+                        <ColorInput value={element.fontColor} onChange={v => set('fontColor', v)} label="Name color" theme={theme} />
+                        <ColorInput value={element.fillColor} onChange={v => set('fillColor', v)} label="Score color" theme={theme} fallback="#facc15" />
                         <Hint>
                             Flag = 2-letter country code (br, ar, fr, de, gb-eng…). Tap + as goals go in.
                         </Hint>
@@ -864,7 +1289,7 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                             <input ref={fileRef} type="file" accept="image/*" onChange={handleLogoUpload} style={{ display: 'none' }} />
                             {element.src && (
                                 <button
-                                    onClick={() => onChange({ src: null })}
+                                    onClick={() => applyElementChange?.({ src: null })}
                                     style={{ background: 'none', border: '1px solid rgba(255,100,100,0.3)', borderRadius: 5, color: 'rgba(255,100,100,0.7)', fontSize: 11, padding: '4px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
                                 >
                                     <X size={12} />
@@ -911,8 +1336,19 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                         <Group label="Border width">
                             <NumberInput value={element.borderWidth} onChange={v => set('borderWidth', v)} min={1} max={24} style={{ width: 52 }} />
                         </Group>
+                        <Group label="OBS window">
+                            <ToggleBtn
+                                active={!!element.hole}
+                                onClick={() => set('hole', !element.hole)}
+                                title="Cut a transparent hole and auto-fit OBS Game / Desktop capture inside this frame"
+                            >
+                                {element.hole ? 'Cutout ON' : 'Cutout OFF'}
+                            </ToggleBtn>
+                        </Group>
                         <Hint>
-                            Frame colour follows the theme accent. Change it in the Theme panel.
+                            {element.hole
+                                ? 'Cuts a hole in the background and scales your OBS Game/Desktop capture to fit inside without cropping.'
+                                : 'Frame colour follows the theme accent. Enable Cutout ON to use this frame as an OBS Game/Desktop window.'}
                         </Hint>
                     </>
                 )}
@@ -920,16 +1356,19 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                 {/* ── Live chat ── */}
                 {type === 'chat' && (
                     <>
-                        <Group label="Twitch channel">
-                            <ChannelInput value={twitchChannel} onCommit={v => onTwitchChannelChange?.(v)} />
-                        </Group>
+                        <ChannelOverrideFields
+                            roomChannel={twitchChannel}
+                            onRoomChannelChange={onTwitchChannelChange}
+                            elementChannel={element.channel}
+                            onElementChannelChange={v => set('channel', v)}
+                        />
                         <Group label="Style">
                             <SelectInput value={element.variant ?? '@lt'} onChange={v => set('variant', v)} options={withThemeOption(LOWER_THIRDS, '@lt')} />
                         </Group>
                         <Group label="Size">
                             <NumberInput value={element.fontSize} onChange={v => set('fontSize', v)} min={10} max={48} />
                         </Group>
-                        <ColorInput value={element.fontColor} onChange={v => set('fontColor', v)} label="Text" />
+                        <ColorInput value={element.fontColor} onChange={v => set('fontColor', v)} label="Text" theme={theme} />
                         <Group label="Show last">
                             <NumberInput value={element.maxMessages} onChange={v => set('maxMessages', v)} min={1} max={40} style={{ width: 52 }} />
                         </Group>
@@ -945,7 +1384,7 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                             <ToggleBtn active={element.showEvents !== false} onClick={() => set('showEvents', element.showEvents === false)} title="Subs, gift subs and raids">subs & raids</ToggleBtn>
                         </Group>
                         <Hint>
-                            Read-only, no login needed. The channel applies to every chat box in this layout. Fade 0 = keep messages.
+                            Read-only, no login needed. Leave Box channel empty to inherit the room's Twitch channel. Fade 0 = keep messages.
                         </Hint>
                     </>
                 )}
@@ -953,9 +1392,12 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                 {/* ── Alert box / event list ── */}
                 {(type === 'alerts' || type === 'eventlist') && (
                     <>
-                        <Group label="Twitch channel">
-                            <ChannelInput value={twitchChannel} onCommit={v => onTwitchChannelChange?.(v)} />
-                        </Group>
+                        <ChannelOverrideFields
+                            roomChannel={twitchChannel}
+                            onRoomChannelChange={onTwitchChannelChange}
+                            elementChannel={element.channel}
+                            onElementChannelChange={v => set('channel', v)}
+                        />
                         <Group label="Style">
                             <SelectInput value={element.variant ?? '@lt'} onChange={v => set('variant', v)} options={withThemeOption(LOWER_THIRDS, '@lt')} />
                         </Group>
@@ -997,7 +1439,20 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                         {type === 'alerts' && (
                             <Group label="Test">
                                 {[['sub', 'Sub'], ['resub', 'Resub'], ['giftbomb', 'Gifts'], ['raid', 'Raid'], ['cheer', 'Cheer']].map(([t, label]) => (
-                                    <ToggleBtn key={t} active={false} onClick={() => onChange({ test: { type: t, at: Date.now() } })} title={`Play a test ${label.toLowerCase()} alert (also shows in OBS)`}>{label}</ToggleBtn>
+                                    <ToggleBtn
+                                        key={t}
+                                        active={false}
+                                        onClick={() => {
+                                            if (onLiveAction) {
+                                                onLiveAction('triggers', element.id, { kind: 'alerts', type: t });
+                                            } else {
+                                                fallbackUpdate?.({ test: { type: t, at: Date.now() } });
+                                            }
+                                        }}
+                                        title={`Play a test ${label.toLowerCase()} alert (also shows in OBS)`}
+                                    >
+                                        {label}
+                                    </ToggleBtn>
                                 ))}
                             </Group>
                         )}
@@ -1056,10 +1511,10 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                             </Group>
                         )}
 
-                        <ColorInput value={element.fontColor} onChange={v => set('fontColor', v)} label="Color" />
+                        <ColorInput value={element.fontColor} onChange={v => set('fontColor', v)} label="Color" theme={theme} />
 
                         {type === 'lowerthird' && (
-                            <ColorInput value={element.subFontColor} onChange={v => set('subFontColor', v)} label="Sub color" />
+                            <ColorInput value={element.subFontColor} onChange={v => set('subFontColor', v)} label="Sub color" theme={theme} />
                         )}
 
                         <Group label="Style">
@@ -1075,43 +1530,53 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                             ))}
                         </Group>
 
+                        <Group label="Letter spacing">
+                            <NumberInput
+                                value={element.letterSpacing ?? (type === 'countdown' ? 2 : 0)}
+                                onChange={v => set('letterSpacing', v)}
+                                min={-4} max={32} step={0.5}
+                                style={{ width: 56 }}
+                            />
+                            <span style={UNIT}>px</span>
+                        </Group>
+
                     </>
                 )}
                 </Section>
             )}
 
             <Section title="Appearance">
-                {/* ── Background ── */}
-                {type !== 'divider' && type !== 'frame' && type !== 'backdrop' && type !== 'chat' && type !== 'alerts' && type !== 'eventlist' && type !== 'wheel' && type !== 'note' && !isClipShape && !isMoodEl && (
+                {/* ── Background (cards / text containers) ── */}
+                {!isShapeFill && type !== 'frame' && type !== 'backdrop' && type !== 'chat' && type !== 'alerts' && type !== 'eventlist' && type !== 'wheel' && type !== 'note' && !isMoodEl && (
                     <>
-                        <ColorInput value={element.bgColor} onChange={v => set('bgColor', v)} label="BG Color" />
+                        <ColorInput value={element.bgColor} onChange={v => set('bgColor', v)} label="BG Color" theme={theme} />
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 110 }}>
                             <Slider
                                 label="BG Opacity"
-                                value={element.bgOpacity}
+                                value={element.bgOpacity ?? 0}
                                 onChange={v => set('bgOpacity', v)}
                             />
                         </div>
                     </>
                 )}
-                {/* ── Divider / shape / clip-shape color ── */}
-                {(type === 'divider' || type === 'shape' || isClipShape) && (
+                {/* ── Divider / shape / circle / clip-shape fill ── */}
+                {isShapeFill && (
                     <>
-                        <ColorInput value={element.bgColor} onChange={v => set('bgColor', v)} label="Color" />
+                        <ColorInput value={element.bgColor} onChange={v => set('bgColor', v)} label="Color" theme={theme} />
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 110 }}>
-                            <Slider label="Opacity" value={element.bgOpacity} onChange={v => set('bgOpacity', v)} />
+                            <Slider label="Fill opacity" value={element.bgOpacity ?? 1} onChange={v => set('bgOpacity', v)} />
                         </div>
                     </>
                 )}
                 {/* ── Shared: border radius + element opacity ── */}
-                {type !== 'divider' && type !== 'wheel' && type !== 'note' && type !== 'backdrop' && type !== 'chat' && type !== 'alerts' && type !== 'eventlist' && !isClipShape && !isMoodEl && (
+                {type !== 'divider' && type !== 'circle' && type !== 'wheel' && type !== 'note' && type !== 'backdrop' && type !== 'chat' && type !== 'alerts' && type !== 'eventlist' && !isClipShape && !isMoodEl && (
                     <Group label="Radius">
                         <NumberInput value={element.borderRadius} onChange={v => set('borderRadius', v)} min={0} max={100} style={{ width: 52 }} />
                     </Group>
                 )}
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 110 }}>
-                    <Slider label="Opacity" value={element.opacity} onChange={v => set('opacity', v)} />
+                    <Slider label="Opacity" value={element.opacity ?? 1} onChange={v => set('opacity', v)} />
                 </div>
 
             </Section>
@@ -1121,10 +1586,11 @@ const ElementEditor = ({ element, onChange, onDelete, onDuplicate, twitchChannel
                     {[['x', 'X'], ['y', 'Y'], ['w', 'Width'], ['h', 'Height']].map(([k, label]) => (
                         <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, ...FIELD, padding: '0 8px', height: 30, minWidth: 0 }}>
                             <span style={{ fontSize: 11, color: C.faint, flexShrink: 0 }}>{label}</span>
-                            <input
-                                type="number" step={0.5} value={Math.round((box[k] ?? 0) * 10) / 10}
-                                onChange={e => setBox(k, e.target.value)}
-                                style={{ flex: 1, width: '100%', minWidth: 0, background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 12, fontVariantNumeric: 'tabular-nums', textAlign: 'right', padding: 0 }}
+                            <BoxCoordInput
+                                value={box[k]}
+                                min={k === 'w' || k === 'h' ? 1 : 0}
+                                max={k === 'x' ? 100 - box.w : k === 'y' ? 100 - box.h : 100}
+                                onCommit={v => setBox(k, v)}
                             />
                             <span style={UNIT}>%</span>
                         </label>

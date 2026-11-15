@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp, Eye, EyeOff, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BUILTIN_LAYERS, ELEMENT_TYPE_MAP } from './elementCatalog';
 
 // Every layer in the current scene, as a grid of cards under the editor canvas
@@ -26,9 +26,9 @@ const ActionBtn = ({ title, onClick, danger, children }) => (
     </button>
 );
 
-const LayerCard = ({ icon, label, kind, color, visible, selected, onSelect, onToggle, onUp, onDown, onRemove }) => {
+const LayerCard = ({ icon, label, kind, color, visible, selected, touch, narrow, onSelect, onToggle, onUp, onDown, onRemove }) => {
     const [hover, setHover] = useState(false);
-    const showActions = hover || selected;
+    const showFull = hover || selected || touch || narrow;
     return (
         <div
             onClick={onSelect}
@@ -58,15 +58,19 @@ const LayerCard = ({ icon, label, kind, color, visible, selected, onSelect, onTo
                     {visible ? kind : `${kind} · hidden`}
                 </span>
             </span>
-            {/* Actions only on hover / selection, so names get the full width otherwise. */}
-            <span style={{ display: showActions ? 'flex' : 'none', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+            {/* Hide/show and delete remain visible without hover (e.g. touch/narrow devices); reorder arrows reveal on active/hover/touch. */}
+            <span style={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0, opacity: showFull ? 1 : 0.55, transition: 'opacity 0.12s' }}>
                 {onToggle && (
                     <ActionBtn title={visible ? 'Hide' : 'Show'} onClick={onToggle}>
                         {visible ? <Eye size={13} /> : <EyeOff size={13} />}
                     </ActionBtn>
                 )}
-                <ActionBtn title="Bring forward" onClick={onUp}><ChevronUp size={13} /></ActionBtn>
-                <ActionBtn title="Send backward" onClick={onDown}><ChevronDown size={13} /></ActionBtn>
+                {showFull && (
+                    <>
+                        <ActionBtn title="Bring forward" onClick={onUp}><ChevronUp size={13} /></ActionBtn>
+                        <ActionBtn title="Send backward" onClick={onDown}><ChevronDown size={13} /></ActionBtn>
+                    </>
+                )}
                 <ActionBtn title="Remove" danger onClick={onRemove}><Trash2 size={12} /></ActionBtn>
             </span>
         </div>
@@ -78,12 +82,27 @@ const LayerCard = ({ icon, label, kind, color, visible, selected, onSelect, onTo
 const NAMED_BY_CONTENT = new Set(['text', 'lowerthird', 'social', 'goal', 'liquidgoal', 'ticker', 'daycounter', 'live', 'note']);
 const firstLine = (v) => String(v ?? '').split('\n').find(l => l.trim())?.trim() ?? '';
 
+const TOUCH_MEDIA_QUERY = '(hover: none), (pointer: coarse)';
+
 const LayerStrip = ({
     boxVisibility = {}, zOrder = [], elements = [], selectedBox, selectedElementId,
     onSelectBox, onLayerUp, onLayerDown, onRemoveBuiltin,
     onSelectElement, onToggleElement, onElementUp, onElementDown, onDeleteElement,
     narrow,
 }) => {
+    const [isTouch, setIsTouch] = useState(() => (
+        typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+            ? window.matchMedia(TOUCH_MEDIA_QUERY).matches
+            : false
+    ));
+    useEffect(() => {
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+        const mq = window.matchMedia(TOUCH_MEDIA_QUERY);
+        const update = (e) => setIsTouch(e.matches);
+        mq.addEventListener?.('change', update);
+        return () => mq.removeEventListener?.('change', update);
+    }, []);
+
     // Higher index in zOrder = rendered on top = listed first.
     const builtins = BUILTIN_LAYERS
         .filter(l => boxVisibility[l.id])
@@ -116,6 +135,8 @@ const LayerStrip = ({
                             color={l.color}
                             visible
                             selected={selectedBox === l.id}
+                            touch={isTouch}
+                            narrow={narrow}
                             onSelect={() => onSelectBox(l.id)}
                             onUp={() => onLayerUp?.(l.id)}
                             onDown={() => onLayerDown?.(l.id)}
@@ -134,6 +155,8 @@ const LayerStrip = ({
                                 color={t?.color ?? '#6b7280'}
                                 visible={!el.hidden}
                                 selected={selectedElementId === el.id}
+                                touch={isTouch}
+                                narrow={narrow}
                                 onSelect={() => onSelectElement(el.id)}
                                 onToggle={() => onToggleElement(el.id)}
                                 onUp={() => onElementUp?.(el.id)}

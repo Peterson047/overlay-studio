@@ -14,6 +14,14 @@ const hideAll = {
     aiCompanion: false, currentTask: false,
 };
 
+// Reset camera frame overrides when switching to a preset so a previous
+// layout's circular/hexagon cam shape or custom glow does not stick around.
+const defaultCamStyles = () => ({
+    faceCam: { frame: 'soft', radius: 14 },
+    handCam: { frame: 'soft', radius: 14 },
+    roomCam: { frame: 'soft', radius: 14 },
+});
+
 // Text element factory with a stable per-preset id (presets replace elements
 // wholesale on apply, so fixed ids never collide).
 const text = (id, content, box, extra = {}) => ({
@@ -68,8 +76,9 @@ export const SCENE_PRESETS = [
         name: 'Starting Soon',
         accent: '#8b5cf6',
         snapshot: {
-            background: { type: 'gradient', from: '#1e1b4b', to: '#0a0a0f', dir: '135' },
+            background: { type: 'gradient', from: '#1e1b4b', to: '#0a0a0f', dir: '135deg' },
             boxVisibility: { ...hideAll },
+            camStyles: defaultCamStyles(),
             elements: [
                 text('ss-title', 'STARTING SOON', { x: 20, y: 28, w: 60, h: 12 }, { fontSize: 48 }),
                 countdown('ss-timer', { x: 35, y: 44, w: 30, h: 14 }, 300, { fontSize: 64 }),
@@ -85,15 +94,16 @@ export const SCENE_PRESETS = [
         name: 'Just Chatting',
         accent: '#0ea5e9',
         snapshot: {
-            background: { type: 'gradient', from: '#0c1326', to: '#0a0a0f', dir: '160' },
+            background: { type: 'gradient', from: '#0c1326', to: '#0a0a0f', dir: '160deg' },
             boxes: {
                 faceCam: { x: 50, y: 8, w: 46, h: 62 },
                 currentTask: { x: 0, y: 88, w: 100, h: 12 },
             },
             boxVisibility: { ...hideAll, faceCam: true, currentTask: true },
+            camStyles: defaultCamStyles(),
             elements: [
                 {
-                    ...text('jc-name', 'Your Name', { x: 50, y: 64, w: 46, h: 9 },
+                    ...text('jc-name', 'Your Name', { x: 50, y: 73, w: 46, h: 9 },
                         { fontSize: 20, align: 'left' }),
                     type: 'lowerthird',
                     subContent: 'Just chatting',
@@ -119,6 +129,7 @@ export const SCENE_PRESETS = [
                 currentTask: { x: 0, y: 92, w: 70, h: 8 },
             },
             boxVisibility: { ...hideAll, faceCam: true, currentTask: true },
+            camStyles: defaultCamStyles(),
             elements: [],
             zOrder: BUILTIN_BOX_IDS,
         },
@@ -128,8 +139,9 @@ export const SCENE_PRESETS = [
         name: 'Be Right Back',
         accent: '#f59e0b',
         snapshot: {
-            background: { type: 'gradient', from: '#2a1605', to: '#0a0a0f', dir: '135' },
+            background: { type: 'gradient', from: '#2a1605', to: '#0a0a0f', dir: '135deg' },
             boxVisibility: { ...hideAll },
+            camStyles: defaultCamStyles(),
             elements: [
                 text('brb-title', 'BE RIGHT BACK', { x: 20, y: 40, w: 60, h: 14 }, { fontSize: 52 }),
                 text('brb-sub', "Don't go anywhere", { x: 25, y: 56, w: 50, h: 8 },
@@ -143,8 +155,9 @@ export const SCENE_PRESETS = [
         name: 'Ending',
         accent: '#ec4899',
         snapshot: {
-            background: { type: 'gradient', from: '#2a0820', to: '#0a0a0f', dir: '135' },
+            background: { type: 'gradient', from: '#2a0820', to: '#0a0a0f', dir: '135deg' },
             boxVisibility: { ...hideAll },
+            camStyles: defaultCamStyles(),
             elements: [
                 text('end-title', 'THANKS FOR WATCHING', { x: 12, y: 34, w: 76, h: 14 }, { fontSize: 46 }),
                 {

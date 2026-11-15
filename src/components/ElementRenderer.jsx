@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- element helpers & defaults live beside the renderer */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AtSign, Globe, Instagram, MessageCircle, Music2, Twitch, Twitter, Youtube } from 'lucide-react';
 import { scoresUrl } from '../config';
@@ -29,13 +30,32 @@ const CLIP_PATHS = {
     star:     'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)',
 };
 
-// Converts #rrggbb + alpha → rgba string
+// Converts #rgb / #rrggbb / rgb(...) / rgba(...) + alpha → rgba string
 export const hexToRgba = (hex = '#000000', alpha = 1) => {
-    const h = hex.replace('#', '');
-    const r = parseInt(h.slice(0, 2), 16) || 0;
-    const g = parseInt(h.slice(2, 4), 16) || 0;
-    const b = parseInt(h.slice(4, 6), 16) || 0;
-    return `rgba(${r},${g},${b},${alpha})`;
+    const a = (alpha !== null && alpha !== '' && Number.isFinite(Number(alpha)))
+        ? Math.max(0, Math.min(1, Number(alpha)))
+        : 1;
+    if (typeof hex !== 'string') return `rgba(0,0,0,${a})`;
+    const s = hex.trim();
+    if (!s) return `rgba(0,0,0,${a})`;
+
+    const rgb = /^rgba?\(\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)(?:\s*[,/]\s*[^)]*)?\s*\)$/i.exec(s);
+    if (rgb) {
+        const byte = (v) => Math.round(Math.max(0, Math.min(255, Number(v))));
+        return `rgba(${byte(rgb[1])},${byte(rgb[2])},${byte(rgb[3])},${a})`;
+    }
+
+    const m3 = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(s);
+    if (m3) {
+        return `rgba(${parseInt(m3[1] + m3[1], 16)},${parseInt(m3[2] + m3[2], 16)},${parseInt(m3[3] + m3[3], 16)},${a})`;
+    }
+
+    const m6 = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})(?:[0-9a-f]{2})?$/i.exec(s);
+    if (m6) {
+        return `rgba(${parseInt(m6[1], 16)},${parseInt(m6[2], 16)},${parseInt(m6[3], 16)},${a})`;
+    }
+
+    return `rgba(0,0,0,${a})`;
 };
 
 // Default values for each element type. New elements adopt the active theme's
@@ -249,6 +269,10 @@ const ClockElement = ({ element }) => {
         hour: '2-digit', minute: '2-digit', second: '2-digit',
     });
 
+    const align = element.align || 'center';
+    const fontFamily = element.fontFamily || 'monospace';
+    const letterSpacing = element.letterSpacing ?? 2;
+
     // Boxes are %-based but fontSize is fixed px, so the same clock occupies a
     // different fraction of its box depending on canvas pixel width (editor panel
     // vs full-width OBS browser source) — and would clip. Measure the natural
@@ -272,21 +296,23 @@ const ClockElement = ({ element }) => {
         const ro = new ResizeObserver(fit);
         if (wrapRef.current) ro.observe(wrapRef.current);
         return () => ro.disconnect();
-    }, [time, element.fontSize, element.bold]);
+    }, [time, element.fontSize, element.bold, element.italic, fontFamily, letterSpacing]);
 
     return (
-        <span ref={wrapRef} style={{ width: '100%', display: 'block', textAlign: 'center', overflow: 'hidden' }}>
+        <span ref={wrapRef} style={{ width: '100%', display: 'block', textAlign: align, overflow: 'hidden' }}>
             <span ref={textRef} style={{
                 display: 'inline-block',
                 fontSize: element.fontSize,
                 color: element.fontColor,
                 fontWeight: element.bold ? 'bold' : 'normal',
-                fontFamily: 'monospace',
+                fontStyle: element.italic ? 'italic' : 'normal',
+                fontFamily,
+                fontVariantNumeric: 'tabular-nums',
                 textShadow: '0 2px 8px rgba(0,0,0,0.6)',
-                letterSpacing: 2,
+                letterSpacing,
                 whiteSpace: 'nowrap',
                 transform: scale < 1 ? `scale(${scale})` : 'none',
-                transformOrigin: 'center',
+                transformOrigin: align === 'left' ? 'left center' : align === 'right' ? 'right center' : 'center',
             }}>
                 {time}
             </span>
@@ -294,10 +320,9 @@ const ClockElement = ({ element }) => {
     );
 };
 
-// ── Countdown sub-component (self-updating) ────────────────────────────────
-// Counts down from `durationSec` when it mounts (and resets if the duration
-// changes). On an OBS browser source that means it starts when the page loads
-// / the scene is applied — the common "starting in 5:00" use case.
+// ── Countdown sub-component (live-synced with local fallback) ──────────────
+// Syncs deterministically with `liveTimer` + `serverOffsetMs`; falls back to
+// counting down from `element.durationSec` on mount when uninitialized.
 const fmtCountdown = (s) => {
     const safe = Math.max(0, s);
     const h = Math.floor(safe / 3600);
@@ -307,69 +332,214 @@ const fmtCountdown = (s) => {
     return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
 };
 
-const CountdownElement = ({ element }) => {
-    const total = element.durationSec ?? 300;
-    const [remaining, setRemaining] = useState(total);
+const CountdownElement = ({ element, liveTimer, serverOffsetMs = 0 }) => {
+    const configDuration = Math.max(0, element.durationSec ?? 300);
+    const hasLive = !!liveTimer;
+    const [tickMs, setTickMs] = useState(() => Date.now());
+    const [fallback, setFallback] = useState(() => ({
+        dur: configDuration,
+        hasLive,
+        anchorAt: hasLive ? null : Date.now(),
+    }));
+    if (fallback.dur !== configDuration || fallback.hasLive !== hasLive) {
+        setFallback({ dur: configDuration, hasLive, anchorAt: null });
+    }
 
+    const isRunning = liveTimer ? liveTimer.state === 'running' : true;
+    const needsFallbackAnchor = !hasLive && fallback.anchorAt === null;
     useEffect(() => {
-        setRemaining(total);
-        const t = setInterval(() => setRemaining(r => (r <= 0 ? 0 : r - 1)), 1000);
-        return () => clearInterval(t);
-    }, [total]);
+        if (!isRunning && !needsFallbackAnchor) return undefined;
+        const raf = requestAnimationFrame(() => {
+            const now = Date.now();
+            setTickMs(now);
+            if (needsFallbackAnchor) {
+                setFallback(f => (f.anchorAt === null ? { ...f, anchorAt: now } : f));
+            }
+        });
+        if (!isRunning) return () => cancelAnimationFrame(raf);
+        const t = setInterval(() => setTickMs(Date.now()), 250);
+        return () => {
+            cancelAnimationFrame(raf);
+            clearInterval(t);
+        };
+    }, [isRunning, needsFallbackAnchor]);
+
+    let remaining;
+    if (liveTimer) {
+        const base = typeof liveTimer.remainingSec === 'number'
+            ? liveTimer.remainingSec
+            : (liveTimer.durationSec ?? configDuration);
+        if (liveTimer.state === 'running') {
+            const nowMs = tickMs + serverOffsetMs;
+            const anchorAt = typeof liveTimer.anchorAt === 'number' ? liveTimer.anchorAt : nowMs;
+            const elapsed = Math.max(0, (nowMs - anchorAt) / 1000);
+            remaining = Math.max(0, Math.ceil(base - elapsed));
+        } else {
+            remaining = Math.max(0, Math.ceil(base));
+        }
+    } else {
+        const elapsed = fallback.anchorAt === null ? 0 : Math.max(0, (tickMs - fallback.anchorAt) / 1000);
+        remaining = Math.max(0, Math.ceil(fallback.dur - elapsed));
+    }
 
     return (
         <span style={{
             fontSize: element.fontSize,
             color: element.fontColor,
             fontWeight: element.bold ? 'bold' : 'normal',
+            fontStyle: element.italic ? 'italic' : 'normal',
             fontFamily: element.fontFamily || 'monospace',
             fontVariantNumeric: 'tabular-nums',
-            textShadow: element.glow ? `0 0 18px ${element.fontColor}, 0 2px 8px rgba(0,0,0,0.6)` : '0 2px 8px rgba(0,0,0,0.6)',
-            letterSpacing: 2,
+            textAlign: element.align || 'center',
+            textShadow: element.shadow === false ? 'none' : element.glow ? `0 0 18px ${element.fontColor}, 0 2px 8px rgba(0,0,0,0.6)` : '0 2px 8px rgba(0,0,0,0.6)',
+            letterSpacing: element.letterSpacing ?? 2,
         }}>
             {fmtCountdown(remaining)}
         </span>
     );
 };
 
-// ── Pomodoro sub-component (self-cycling) ──────────────────────────────────
-// Runs work → break → work… from mount, counting completed focus sessions.
-// On an OBS browser source it begins when the scene/page loads.
-const PomodoroElement = ({ element }) => {
-    const work = Math.max(1, element.workMin ?? 25) * 60;
-    const brk  = Math.max(1, element.breakMin ?? 5) * 60;
-    const [phase, setPhase] = useState('work');
-    const [remaining, setRemaining] = useState(work);
-    const [count, setCount] = useState(0);
-    // Authoritative tick state in a ref so the interval never reads stale values.
-    const state = useRef({ phase: 'work', remaining: work, count: 0 });
+// ── Pomodoro sub-component (deterministic sync + local fallback) ───────────
+// Advances elapsed seconds across work → break → work cycles deterministically
+// so the editor and all ?obs clients always show identical phase, count, and time.
+export const computePomodoroState = (liveTimer, element, nowMs = Date.now()) => {
+    const rawWork = liveTimer?.workMin ?? element?.workMin ?? 25;
+    const rawBreak = liveTimer?.breakMin ?? element?.breakMin ?? 5;
+    const workMin = Math.max(1, Number.isFinite(Number(rawWork)) ? Number(rawWork) : 25);
+    const breakMin = Math.max(1, Number.isFinite(Number(rawBreak)) ? Number(rawBreak) : 5);
+    const workSec = workMin * 60;
+    const breakSec = breakMin * 60;
 
-    useEffect(() => {
-        state.current = { phase: 'work', remaining: work, count: 0 };
-        setPhase('work'); setRemaining(work); setCount(0);
-        const id = setInterval(() => {
-            const s = state.current;
-            if (s.remaining > 1) {
-                s.remaining -= 1;
-            } else if (s.phase === 'work') {
-                s.count += 1; s.phase = 'break'; s.remaining = brk;
+    let phase = liveTimer?.phase === 'break' ? 'break' : 'work';
+    let count = Math.max(0, Math.floor(Number(liveTimer?.count) || 0));
+    const hasRem = typeof liveTimer?.remainingSec === 'number' && Number.isFinite(liveTimer.remainingSec);
+    let remaining = hasRem ? Math.max(0, liveTimer.remainingSec) : (phase === 'break' ? breakSec : workSec);
+    const state = liveTimer?.state || 'paused';
+
+    if (state !== 'running') {
+        return {
+            state,
+            phase,
+            remainingSec: Math.max(0, Math.ceil(remaining)),
+            count,
+            workMin,
+            breakMin,
+        };
+    }
+
+    const anchorAt = typeof liveTimer?.anchorAt === 'number' && Number.isFinite(liveTimer.anchorAt)
+        ? liveTimer.anchorAt
+        : nowMs;
+    let elapsed = Math.max(0, (nowMs - anchorAt) / 1000);
+
+    if (elapsed >= remaining) {
+        elapsed -= remaining;
+        if (phase === 'work') {
+            count += 1;
+            phase = 'break';
+            remaining = breakSec;
+        } else {
+            phase = 'work';
+            remaining = workSec;
+        }
+
+        const cycleSec = workSec + breakSec;
+        if (elapsed >= cycleSec) {
+            const fullCycles = Math.floor(elapsed / cycleSec);
+            count += fullCycles;
+            elapsed -= fullCycles * cycleSec;
+        }
+
+        while (elapsed >= remaining) {
+            elapsed -= remaining;
+            if (phase === 'work') {
+                count += 1;
+                phase = 'break';
+                remaining = breakSec;
             } else {
-                s.phase = 'work'; s.remaining = work;
+                phase = 'work';
+                remaining = workSec;
             }
-            setPhase(s.phase); setRemaining(s.remaining); setCount(s.count);
-        }, 1000);
-        return () => clearInterval(id);
-    }, [work, brk]);
+        }
+    }
+
+    return {
+        state,
+        phase,
+        remainingSec: Math.max(0, Math.ceil(remaining - elapsed)),
+        count,
+        workMin,
+        breakMin,
+    };
+};
+
+const PomodoroElement = ({ element, liveTimer, serverOffsetMs = 0 }) => {
+    const workMin = Math.max(1, element.workMin ?? 25);
+    const breakMin = Math.max(1, element.breakMin ?? 5);
+    const hasLive = !!liveTimer;
+    const [tickMs, setTickMs] = useState(() => Date.now());
+    const [fallback, setFallback] = useState(() => ({
+        workMin,
+        breakMin,
+        hasLive,
+        anchorAt: hasLive ? null : Date.now(),
+    }));
+    if (fallback.workMin !== workMin || fallback.breakMin !== breakMin || fallback.hasLive !== hasLive) {
+        setFallback({ workMin, breakMin, hasLive, anchorAt: null });
+    }
+
+    const isRunning = liveTimer ? liveTimer.state === 'running' : true;
+    const needsFallbackAnchor = !hasLive && fallback.anchorAt === null;
+    useEffect(() => {
+        if (!isRunning && !needsFallbackAnchor) return undefined;
+        const raf = requestAnimationFrame(() => {
+            const now = Date.now();
+            setTickMs(now);
+            if (needsFallbackAnchor) {
+                setFallback(f => (f.anchorAt === null ? { ...f, anchorAt: now } : f));
+            }
+        });
+        if (!isRunning) return () => cancelAnimationFrame(raf);
+        const id = setInterval(() => setTickMs(Date.now()), 250);
+        return () => {
+            cancelAnimationFrame(raf);
+            clearInterval(id);
+        };
+    }, [isRunning, needsFallbackAnchor]);
+
+    const effectiveTimer = liveTimer ?? {
+        state: fallback.anchorAt === null ? 'paused' : 'running',
+        phase: 'work',
+        workMin: fallback.workMin,
+        breakMin: fallback.breakMin,
+        remainingSec: fallback.workMin * 60,
+        count: 0,
+        anchorAt: fallback.anchorAt ?? tickMs,
+    };
+    const nowMs = liveTimer ? tickMs + serverOffsetMs : tickMs;
+    const { phase, remainingSec, count } = computePomodoroState(effectiveTimer, element, nowMs);
 
     const isWork = phase === 'work';
-    const m = Math.floor(remaining / 60);
-    const sec = remaining % 60;
+    const m = Math.floor(remainingSec / 60);
+    const sec = remainingSec % 60;
+    const fontFamily = element.fontFamily || 'monospace';
+    const align = element.align || 'center';
+    const alignItems = align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center';
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+        <div style={{
+            width: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems,
+            textAlign: align,
+            gap: 4,
+            padding: align === 'center' ? 0 : '0 12px',
+            boxSizing: 'border-box',
+        }}>
             <span style={{
                 fontSize: Math.max(9, (element.fontSize ?? 40) * 0.28),
-                fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 2, fontWeight: 'bold',
+                fontFamily, textTransform: 'uppercase', letterSpacing: 2, fontWeight: 'bold',
                 color: isWork ? '#f87171' : '#34d399',
             }}>
                 {isWork ? '● Focus' : '○ Break'}
@@ -378,7 +548,10 @@ const PomodoroElement = ({ element }) => {
                 fontSize: element.fontSize,
                 color: element.fontColor,
                 fontWeight: element.bold ? 'bold' : 'normal',
-                fontFamily: 'monospace', letterSpacing: 2,
+                fontStyle: element.italic ? 'italic' : 'normal',
+                fontFamily,
+                fontVariantNumeric: 'tabular-nums',
+                letterSpacing: element.letterSpacing ?? 2,
                 textShadow: '0 2px 8px rgba(0,0,0,0.6)', lineHeight: 1,
             }}>
                 {`${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`}
@@ -403,6 +576,8 @@ const TickerElement = ({ element, T }) => {
     const msgs = String(element.content || 'Your message here')
         .split('\n').map(s => s.trim()).filter(Boolean);
     const pxPerSec = TICKER_SPEEDS[element.speed] ?? TICKER_SPEEDS.medium;
+    const fontFamily = element.fontFamily || T.fontFamily;
+    const letterSpacing = element.letterSpacing ?? 0;
 
     const wrapRef = useRef(null);
     const unitRef = useRef(null);
@@ -425,7 +600,7 @@ const TickerElement = ({ element, T }) => {
         const ro = new ResizeObserver(fit);
         if (wrapRef.current) ro.observe(wrapRef.current);
         return () => ro.disconnect();
-    }, [element.content, element.fontSize, element.bold, element.italic, element.letterSpacing, pxPerSec]);
+    }, [element.content, element.fontSize, element.bold, element.italic, letterSpacing, fontFamily, pxPerSec]);
 
     const unit = msgs.map((m, i) => (
         <span key={i}>
@@ -441,8 +616,8 @@ const TickerElement = ({ element, T }) => {
         color: element.fontColor,
         fontWeight: element.bold ? 'bold' : 'normal',
         fontStyle: element.italic ? 'italic' : 'normal',
-        letterSpacing: element.letterSpacing || 0,
-        fontFamily: T.fontFamily,
+        letterSpacing,
+        fontFamily,
         textShadow: (element.bgOpacity ?? 0) > 0 ? 'none' : '0 2px 8px rgba(0,0,0,0.6)',
     };
 
@@ -484,7 +659,7 @@ const wheelSlice = (r, startA, endA) => {
 };
 const clip = (s, n) => (String(s).length > n ? String(s).slice(0, n - 1) + '…' : String(s));
 
-const WheelElement = ({ element, T, onUpdate }) => {
+const WheelElement = ({ element, T, preview = false, liveTrigger, serverOffsetMs = 0, onLiveAction, onUpdate }) => {
     const opts = (Array.isArray(element.options) && element.options.length >= 2) ? element.options : ['Yes', 'No'];
     const n = opts.length;
     const seg = 360 / n;
@@ -500,6 +675,7 @@ const WheelElement = ({ element, T, onUpdate }) => {
     // instance picked the spin up late (e.g. the OBS source polled mid-spin).
     const [animSec, setAnimSec] = useState(spinSec);
     const timer = useRef(null);
+    const seenSeqRef = useRef(null);
     const lastSpinAt = useRef(0);
 
     // Animate slice `idx` under the pointer over `durSec` seconds. A stale event
@@ -523,26 +699,57 @@ const WheelElement = ({ element, T, onUpdate }) => {
         timer.current = setTimeout(() => { setSpinning(false); setWinnerIdx(idx); }, durSec * 1000);
     }, [seg]);
 
-    // The editor window and the OBS browser source are separate app instances
-    // that only share state through the hosted layout store. So a spin is not
-    // run directly: the click publishes { idx, at } onto the element, and every
-    // instance (this one immediately, viewers via their poll) animates it from
-    // this effect. Late joiners animate the remaining time, or snap to the
-    // result if the spin already ended.
+    // Live trigger channel (`liveState.triggers[element.id]`): ignore triggers
+    // older than 15s on initial mount so reopening ?obs doesn't replay old spins.
+    useEffect(() => {
+        if (!liveTrigger || (liveTrigger.kind && liveTrigger.kind !== 'wheel')) return undefined;
+        const seq = liveTrigger.seq ?? liveTrigger.at;
+        if (seq == null) return undefined;
+        if (seenSeqRef.current === null) {
+            const ageMs = typeof liveTrigger.at === 'number'
+                ? (Date.now() + serverOffsetMs) - liveTrigger.at
+                : 0;
+            if (ageMs > 15000) {
+                seenSeqRef.current = seq;
+                return undefined;
+            }
+        } else if (seq <= seenSeqRef.current) {
+            return undefined;
+        }
+        const raf = requestAnimationFrame(() => {
+            if (seenSeqRef.current !== null && seq <= seenSeqRef.current) return;
+            seenSeqRef.current = seq;
+            const idx = Math.min(n - 1, Math.max(0, (liveTrigger.idx ?? 0) | 0));
+            const trigSpinSec = liveTrigger.spinSec ?? spinSec;
+            const elapsedSec = typeof liveTrigger.at === 'number'
+                ? Math.max(0, ((Date.now() + serverOffsetMs) - liveTrigger.at) / 1000)
+                : 0;
+            runSpin(idx, trigSpinSec - elapsedSec);
+        });
+        return () => cancelAnimationFrame(raf);
+    }, [liveTrigger, n, spinSec, serverOffsetMs, runSpin]);
+
+    // Backwards compatibility for legacy `element.spin` persisted directly on
+    // the element object.
     const spinEvt = element.spin;
     useEffect(() => {
-        if (!spinEvt || typeof spinEvt.at !== 'number') return;
-        if (spinEvt.at <= lastSpinAt.current) return;     // already played
-        lastSpinAt.current = spinEvt.at;
-        const idx = Math.min(n - 1, Math.max(0, spinEvt.idx | 0));
-        runSpin(idx, spinSec - (Date.now() - spinEvt.at) / 1000);
+        if (!spinEvt || typeof spinEvt.at !== 'number') return undefined;
+        if (spinEvt.at <= lastSpinAt.current) return undefined;     // already played
+        const raf = requestAnimationFrame(() => {
+            if (spinEvt.at <= lastSpinAt.current) return;
+            lastSpinAt.current = spinEvt.at;
+            const idx = Math.min(n - 1, Math.max(0, spinEvt.idx | 0));
+            runSpin(idx, spinSec - (Date.now() - spinEvt.at) / 1000);
+        });
+        return () => cancelAnimationFrame(raf);
     }, [spinEvt, n, spinSec, runSpin]);
 
     const spin = () => {
-        if (spinning) return;                             // ignore clicks mid-spin
+        if (preview || spinning) return;                  // ignore previews or clicks mid-spin
         const idx = Math.floor(Math.random() * n);
-        if (onUpdate) onUpdate({ spin: { idx, at: Date.now() } });
-        else runSpin(idx, spinSec);                       // no write path (e.g. a preview) — spin locally
+        if (onLiveAction) onLiveAction('triggers', element.id, { kind: 'wheel', idx, spinSec });
+        else if (onUpdate) onUpdate({ spin: { idx, at: Date.now() } });
+        else runSpin(idx, spinSec);                       // no write path (e.g. standalone render) — spin locally
     };
 
     // Optional hands-free auto-spin. Fires at wall-clock slot boundaries with a
@@ -602,7 +809,11 @@ const WheelElement = ({ element, T, onUpdate }) => {
                 <polygon points="50,12 44.5,1 55.5,1" fill={fontColor} stroke="rgba(0,0,0,0.35)" strokeWidth="0.5" />
 
                 {/* Centre hub — click to spin; shows the winner when it stops */}
-                <g onClick={(e) => { e.stopPropagation(); spin(); }} onMouseDown={(e) => e.stopPropagation()} style={{ cursor: 'pointer' }}>
+                <g
+                    onClick={preview ? undefined : (e) => { e.stopPropagation(); spin(); }}
+                    onPointerDown={preview ? undefined : (e) => e.stopPropagation()}
+                    style={{ cursor: preview ? 'default' : 'pointer' }}
+                >
                     <circle cx="50" cy="50" r="13" fill="rgba(10,10,22,0.92)"
                         stroke={winner ? '#fff' : 'rgba(255,255,255,0.5)'} strokeWidth="1.5"
                         style={winner ? { filter: 'drop-shadow(0 0 5px rgba(255,255,255,0.85))' } : undefined} />
@@ -654,27 +865,43 @@ const parseScorers = (raw) => {
     return lines;
 };
 
-const MatchElement = ({ element, T }) => {
+const MatchElement = ({ element, T, preview = false }) => {
     // When the scoreboard is linked to a feed match (matchId), poll the score
     // feed and let it drive the display — this runs in the editor AND the OBS
     // browser source, so both stay in sync without manual edits. Unlinked
-    // scoreboards just use their manually-entered fields.
-    const [live, setLive] = useState(null);
+    // scoreboards just use their manually-entered fields. Skip network polling
+    // in gallery/showcase previews.
+    const [liveState, setLiveState] = useState(null);
     useEffect(() => {
-        if (!element.matchId) { setLive(null); return; }
+        if (preview || !element.matchId) return undefined;
         let alive = true;
-        const load = () => fetch(scoresUrl())
-            .then(r => (r.ok ? r.json() : null))
-            .then(d => {
-                if (!alive || !d) return;
-                const m = (d.matches || []).find(x => String(x.id) === String(element.matchId));
-                if (m) setLive(m);
-            })
-            .catch(() => {});
+        let lastUpdatedAt = null;
+        const load = () => {
+            const base = scoresUrl();
+            const url = lastUpdatedAt != null
+                ? `${base}${base.includes('?') ? '&' : '?'}v=${encodeURIComponent(lastUpdatedAt)}`
+                : base;
+            return fetch(url)
+                .then(r => {
+                    if (r.status === 204 || !r.ok) return null;
+                    return r.json();
+                })
+                .then(d => {
+                    if (!alive || !d) return;
+                    if (d.updatedAt != null) lastUpdatedAt = d.updatedAt;
+                    const m = (d.matches || []).find(x => String(x.id) === String(element.matchId));
+                    if (m) setLiveState({ matchId: element.matchId, match: m });
+                })
+                .catch(() => {});
+        };
         load();
         const t = setInterval(load, 10000);   // matches the feed's 10s shared cache
         return () => { alive = false; clearInterval(t); };
-    }, [element.matchId]);
+    }, [element.matchId, preview]);
+
+    const live = !preview && element.matchId && liveState?.matchId === element.matchId
+        ? liveState.match
+        : null;
 
     const teamA  = live ? live.home.name  : (element.teamA ?? 'TBD');
     const teamB  = live ? live.away.name  : (element.teamB ?? 'TBD');
@@ -690,6 +917,8 @@ const MatchElement = ({ element, T }) => {
     const { fontColor, fillColor, fontSize = 30 } = element;
     const names = fontColor || T.textColor;
     const score = fillColor || T.accent;
+    const teamFont = element.fontFamily || T.fontFamily;
+    const scoreFont = element.fontFamily || 'monospace';
     const isLive = status === 'LIVE' || status === 'HT';
     const nameFs = Math.max(11, fontSize * 0.42);
     const flagH = Math.max(12, fontSize * 0.5);
@@ -722,8 +951,8 @@ const MatchElement = ({ element, T }) => {
                             onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                     )}
                     <span style={{
-                        fontSize: nameFs, color: names, fontWeight: 800, fontFamily: T.fontFamily,
-                        letterSpacing: 0.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                        fontSize: nameFs, color: names, fontWeight: 800, fontFamily: teamFont,
+                        letterSpacing: element.letterSpacing ?? 0.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                         textShadow: '0 1px 4px rgba(0,0,0,0.6)',
                     }}>{name}</span>
                 </div>
@@ -732,7 +961,7 @@ const MatchElement = ({ element, T }) => {
                         {lines.map((l, i) => (
                             <span key={i} style={{
                                 fontSize: Math.max(8, nameFs * 0.6), color: names, opacity: 0.72,
-                                fontFamily: T.fontFamily, whiteSpace: 'nowrap', textShadow: '0 1px 3px rgba(0,0,0,0.6)',
+                                fontFamily: teamFont, whiteSpace: 'nowrap', textShadow: '0 1px 3px rgba(0,0,0,0.6)',
                             }}>⚽ {l}</span>
                         ))}
                     </div>
@@ -747,13 +976,13 @@ const MatchElement = ({ element, T }) => {
                 {team(teamA, flagA, true, element.scorersHome)}
                 {/* Score + status */}
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0, minWidth: fontSize * 2.4 }}>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: fontSize * 0.18, fontFamily: 'monospace', fontVariantNumeric: 'tabular-nums' }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: fontSize * 0.18, fontFamily: scoreFont, fontVariantNumeric: 'tabular-nums', letterSpacing: element.letterSpacing ?? 0 }}>
                         <span style={{ fontSize, fontWeight: 900, color: score, lineHeight: 1, textShadow: '0 2px 8px rgba(0,0,0,0.5)' }}>{scoreA}</span>
                         <span style={{ fontSize: fontSize * 0.6, color: names, opacity: 0.5 }}>–</span>
                         <span style={{ fontSize, fontWeight: 900, color: score, lineHeight: 1, textShadow: '0 2px 8px rgba(0,0,0,0.5)' }}>{scoreB}</span>
                     </div>
                     <span style={{
-                        fontSize: Math.max(8, fontSize * 0.26), fontFamily: 'monospace', letterSpacing: 1, marginTop: 2,
+                        fontSize: Math.max(8, fontSize * 0.26), fontFamily: scoreFont, letterSpacing: element.letterSpacing ?? 1, marginTop: 2,
                         color: isLive ? '#ff5a5a' : 'rgba(255,255,255,0.55)', fontWeight: isLive ? 700 : 400,
                         display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap',
                     }}>
@@ -774,14 +1003,85 @@ const MatchElement = ({ element, T }) => {
     );
 };
 
+// ── Sentiment mood-ring sub-component (responsive orb sizing) ──────────────
+const MoodRingElement = ({ element, T, mood, opacity }) => {
+    const md = getMood(mood);
+    const fallbackW = ((element.box?.w ?? 11) / 100) * 1920;
+    const fallbackH = ((element.box?.h ?? 20) / 100) * 1080;
+    const wrapRef = useRef(null);
+    const [boxPx, setBoxPx] = useState(null);
+
+    useLayoutEffect(() => {
+        const el = wrapRef.current;
+        if (!el) return undefined;
+        const update = () => {
+            if (el.clientWidth > 0 && el.clientHeight > 0) {
+                setBoxPx({ w: el.clientWidth, h: el.clientHeight });
+            }
+        };
+        update();
+        if (typeof ResizeObserver === 'undefined') return undefined;
+        const ro = new ResizeObserver(update);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
+
+    const boxW = boxPx?.w ?? fallbackW;
+    const boxH = boxPx?.h ?? fallbackH;
+    const labelFs = Math.max(8, Math.min(11, Math.round(boxH * 0.085)));
+    const gap = Math.max(2, Math.min(7, Math.round(boxH * 0.045)));
+    const maxOrbPx = Math.max(16, Math.min(boxW * 0.64, boxH - labelFs - gap - 14));
+    const emojiFs = Math.max(11, Math.min(22, Math.round(maxOrbPx * 0.22)));
+
+    return (
+        <div ref={wrapRef} style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap, opacity, overflow: 'hidden' }}>
+            <div style={{
+                width: `min(64%, ${Math.round(maxOrbPx)}px)`,
+                aspectRatio: '1 / 1',
+                borderRadius: '50%',
+                boxSizing: 'border-box',
+                flexShrink: 0,
+                border: `3px solid ${md.color}`,
+                boxShadow: `0 0 26px ${hexToRgba(md.color, 0.85)}, inset 0 0 20px ${hexToRgba(md.color, 0.55)}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                animation: 'pulse 2.6s ease-in-out infinite',
+            }}>
+                <span style={{ fontSize: emojiFs, lineHeight: 1 }}>{md.emoji}</span>
+            </div>
+            <span style={{
+                fontSize: labelFs, fontFamily: T.fontFamily, color: md.color, fontWeight: 'bold',
+                textTransform: 'uppercase', letterSpacing: 2, textShadow: '0 1px 6px rgba(0,0,0,0.6)',
+                lineHeight: 1.1, whiteSpace: 'nowrap',
+            }}>
+                {md.label}
+            </span>
+        </div>
+    );
+};
+
 // ── Main renderer ──────────────────────────────────────────────────────────
 // `channel` is the layout's Twitch channel; `preview` marks gallery thumbnails
 // (they show sample chat rather than nothing).
 // `holes` are camera cut-outs (canvas %) that backdrops leave transparent.
-const ElementRenderer = ({ element, onUploadLogo, onElementUpdate, editMode, preview = false, channel = '', holes, theme = DEFAULT_THEME, mood = 'chill' }) => {
+const ElementRenderer = ({
+    element,
+    onUploadLogo,
+    onElementUpdate,
+    editMode,
+    preview = false,
+    channel = '',
+    holes,
+    theme = DEFAULT_THEME,
+    mood = 'chill',
+    liveState = {},
+    serverOffsetMs = 0,
+    onLiveAction,
+}) => {
     const T = theme ?? DEFAULT_THEME;
     // Resolve any theme tokens (@accent, @text, @radius…) to concrete values.
     const resolved = resolveElement(element, T);
+    const liveTimer = liveState?.timers?.[element.id];
+    const liveTrigger = liveState?.triggers?.[element.id];
     const {
         type, opacity = 1, borderRadius = 0,
         bgColor, bgOpacity = 0,
@@ -838,7 +1138,7 @@ const ElementRenderer = ({ element, onUploadLogo, onElementUpdate, editMode, pre
 
     // ── Alerts / event list ── subs, gifts, raids, cheers from the chat feed
     if (type === 'alerts') {
-        return <AlertBox element={resolved} T={T} channel={channel} editMode={editMode} />;
+        return <AlertBox element={resolved} T={T} channel={channel} editMode={editMode} liveTrigger={liveTrigger} serverOffsetMs={serverOffsetMs} />;
     }
     if (type === 'eventlist') {
         return <EventList element={resolved} T={T} channel={channel} editMode={editMode} preview={preview} />;
@@ -851,7 +1151,14 @@ const ElementRenderer = ({ element, onUploadLogo, onElementUpdate, editMode, pre
 
     // ── Lower Third ──
     if (type === 'lowerthird') {
-        const subStyle = { fontSize: subFontSize, color: subFontColor, fontFamily: T.fontFamily, lineHeight: 1.2, letterSpacing: 0.5 };
+        const subStyle = {
+            fontSize: subFontSize,
+            color: subFontColor,
+            fontFamily: resolved.fontFamily || T.fontFamily,
+            textAlign: align,
+            lineHeight: 1.2,
+            letterSpacing: resolved.letterSpacing ?? 0.5,
+        };
         const plate = resolved.variant && resolved.variant !== 'panel' && (
             <LowerThirdPlate
                 variant={resolved.variant} T={T} radius={borderRadius}
@@ -863,7 +1170,7 @@ const ElementRenderer = ({ element, onUploadLogo, onElementUpdate, editMode, pre
         return (
             <div style={{ ...outerStyle, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '6px 14px', gap: 2 }}>
                 <div style={{ ...textStyle, marginBottom: 0 }}>{content || 'Your Name'}</div>
-                <div style={{ fontSize: subFontSize, color: subFontColor, fontFamily: T.fontFamily, lineHeight: 1.2, letterSpacing: 0.5 }}>
+                <div style={subStyle}>
                     {subContent || 'Role / Subtitle'}
                 </div>
             </div>
@@ -913,8 +1220,8 @@ const ElementRenderer = ({ element, onUploadLogo, onElementUpdate, editMode, pre
         }
         // "glow" is a soft halo, not a neon tube: a slightly translucent stroke, a
         // low-alpha bloom and a drop shadow for depth.
-        const isHex = /^#[0-9a-f]{6}$/i.test(color ?? '');
-        const tint = (a) => (isHex ? hexToRgba(color, a) : color);
+        const isColor = /^(#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})|rgba?\()/i.test((color ?? '').trim());
+        const tint = (a) => (isColor ? hexToRgba(color, a) : color);
         return (
             <div style={{
                 width: '100%', height: '100%', borderRadius, boxSizing: 'border-box', opacity,
@@ -928,13 +1235,12 @@ const ElementRenderer = ({ element, onUploadLogo, onElementUpdate, editMode, pre
     // ── Divider ──
     if (type === 'divider') {
         return (
-            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center' }}>
+            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', opacity }}>
                 <div style={{
                     width: '100%',
                     height: Math.max(1, fontSize ? fontSize / 16 : 2),
-                    background: bgOpacity > 0 ? hexToRgba(bgColor, bgOpacity) : hexToRgba(fontColor || '#ffffff', opacity),
+                    background: bgOpacity > 0 ? hexToRgba(bgColor, bgOpacity) : hexToRgba(fontColor || '#ffffff', 1),
                     borderRadius: 99,
-                    opacity,
                 }} />
             </div>
         );
@@ -987,9 +1293,11 @@ const ElementRenderer = ({ element, onUploadLogo, onElementUpdate, editMode, pre
 
     // ── Countdown ──
     if (type === 'countdown') {
+        const cdAlign = align || 'center';
+        const justifyContent = cdAlign === 'left' ? 'flex-start' : cdAlign === 'right' ? 'flex-end' : 'center';
         return (
-            <div style={{ ...outerStyle, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <CountdownElement element={resolved} />
+            <div style={{ ...outerStyle, display: 'flex', alignItems: 'center', justifyContent, padding: cdAlign === 'center' ? 0 : '0 12px' }}>
+                <CountdownElement element={resolved} liveTimer={liveTimer} serverOffsetMs={serverOffsetMs} />
             </div>
         );
     }
@@ -1031,7 +1339,7 @@ const ElementRenderer = ({ element, onUploadLogo, onElementUpdate, editMode, pre
     if (type === 'match') {
         return (
             <div style={outerStyle}>
-                <MatchElement element={resolved} T={T} />
+                <MatchElement element={resolved} T={T} preview={preview} />
             </div>
         );
     }
@@ -1138,30 +1446,14 @@ const ElementRenderer = ({ element, onUploadLogo, onElementUpdate, editMode, pre
     if (type === 'pomodoro') {
         return (
             <div style={{ ...outerStyle, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <PomodoroElement element={resolved} />
+                <PomodoroElement element={resolved} liveTimer={liveTimer} serverOffsetMs={serverOffsetMs} />
             </div>
         );
     }
 
     // ── Sentiment mood-ring ── breathing aura in the live mood's colour
     if (type === 'moodring') {
-        const md = getMood(mood);
-        return (
-            <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 7, opacity }}>
-                <div style={{
-                    width: '64%', aspectRatio: '1 / 1', borderRadius: '50%',
-                    border: `3px solid ${md.color}`,
-                    boxShadow: `0 0 26px ${hexToRgba(md.color, 0.85)}, inset 0 0 20px ${hexToRgba(md.color, 0.55)}`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    animation: 'pulse 2.6s ease-in-out infinite',
-                }}>
-                    <span style={{ fontSize: 22, lineHeight: 1 }}>{md.emoji}</span>
-                </div>
-                <span style={{ fontSize: 11, fontFamily: T.fontFamily, color: md.color, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 2, textShadow: '0 1px 6px rgba(0,0,0,0.6)' }}>
-                    {md.label}
-                </span>
-            </div>
-        );
+        return <MoodRingElement element={resolved} T={T} mood={mood} opacity={opacity} />;
     }
 
     // ── Channel pet ── mascot mirroring the mood-ring; optionally roaming
@@ -1173,7 +1465,17 @@ const ElementRenderer = ({ element, onUploadLogo, onElementUpdate, editMode, pre
 
     // ── Decision wheel ── spin-to-pick from a list of options
     if (type === 'wheel') {
-        return <WheelElement element={resolved} T={T} onUpdate={onElementUpdate} />;
+        return (
+            <WheelElement
+                element={resolved}
+                T={T}
+                preview={preview}
+                liveTrigger={liveTrigger}
+                serverOffsetMs={serverOffsetMs}
+                onLiveAction={onLiveAction}
+                onUpdate={onElementUpdate}
+            />
+        );
     }
 
     // ── Sticky note ── a tilted scrap of paper for freeform jottings
