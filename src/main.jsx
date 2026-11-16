@@ -9,7 +9,7 @@ import { initAnalytics } from './analytics'
 // GA can't serve to the client.
 // A stable per-browser id (localStorage) lets the server tally unique visitors
 // without any personal data. Fire-and-forget; never blocks the app.
-try {
+if (!new URLSearchParams(window.location.search).has('widgetlab')) try {
     let uid = localStorage.getItem('ov_uid')
     if (!uid) { uid = (crypto.randomUUID?.() || String(Date.now()) + Math.random().toString(36).slice(2)); localStorage.setItem('ov_uid', uid) }
     fetch(usageUrl(), {

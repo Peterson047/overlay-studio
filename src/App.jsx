@@ -3,6 +3,7 @@ import LandingPage from './components/LandingPage';
 
 const Studio = lazy(() => import('./components/Studio'));
 const Showcase = lazy(() => import('./components/Showcase'));
+const WidgetLab = lazy(() => import('./components/WidgetLab'));
 const statusStyle = {
     minHeight: '100dvh', display: 'grid', placeContent: 'center', gap: 16,
     padding: 32, background: '#151714', color: '#f0f0e9',
@@ -45,7 +46,7 @@ function App() {
     return (
         <AppBoundary>
             <Suspense fallback={loading}>
-                {params.has('showcase') ? <Showcase /> : isStudio ? <Studio /> : <LandingPage />}
+                {params.has('widgetlab') ? <WidgetLab /> : params.has('showcase') ? <Showcase /> : isStudio ? <Studio /> : <LandingPage />}
             </Suspense>
         </AppBoundary>
     );

@@ -35,3 +35,8 @@ dist-ssr
 promo-videos/
 
 !.env.example
+
+# Test output
+coverage/
+test-results/
+playwright-report/

@@ -33,13 +33,12 @@ export const SITE = {
     brandLong: 'qorpStreamer',
 };
 
-// Brand searches we should own. These already show up in Search Console with
-// 0 clicks, which means the GitHub repo or another product is ranking instead.
+// Brand searches we should own. Never target the upstream "Overlay Studio" /
+// "KazeKit" names: they belong to the original project (see NOTICE.md).
 export const BRAND_KEYWORDS = [
-    'overlay studio',
-    'overlaystudio',
-    'overlay studio github',
-    'overlay studio obs',
+    'qorpstreamer',
+    'qorp streamer',
+    'qorpstreamer obs',
 ];
 
 // Homepage targets — broad, high-intent "I want a tool" searches.

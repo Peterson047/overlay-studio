@@ -2,7 +2,7 @@
 
 **A free, browser-based stream overlay editor for OBS.** Design your overlay on a live canvas, then add it to OBS with one link. Nothing to install.
 
-**Fork mantido pela [Qorp](https://qorp.com.br).**
+**Fork mantido pela [Qorp](https://qorp.com.br).** O qorpStreamer é um fork do [Overlay Studio](https://github.com/abhayraghuwanshi/overlay-studio), de Abhay Raghuwanshi, distribuído sob AGPL-3.0. Veja [NOTICE.md](NOTICE.md).
 
 **Works with** YouTube, Twitch, Kick, Facebook Live, X, TikTok LIVE (with a stream key) and any RTMP platform, from OBS Studio, Streamlabs Desktop, XSplit, Meld Studio or any app with a browser source. Multistreaming works too.
 
@@ -91,3 +91,11 @@ The `backend/` server runs a small LLM on your own machine via [`node-llama-cpp`
 Issues and pull requests are welcome. For anything big, open an issue first so we can talk it through.
 
 Built live on stream: [watch the build](https://www.youtube.com/watch?v=EYx6zFFJDyE).
+
+## Licença e créditos
+
+O qorpStreamer é um fork do [Overlay Studio](https://github.com/abhayraghuwanshi/overlay-studio).
+
+Copyright (c) 2026 Abhay Raghuwanshi (projeto original). Modificações da Qorp.
+
+O código é distribuído sob a [GNU Affero General Public License v3.0](LICENSE). Os nomes e logos "Overlay Studio" e "KazeKit" pertencem ao projeto original e não são licenciados; o qorpStreamer não é a versão oficial nem é endossado pela KazeKit. Detalhes em [NOTICE.md](NOTICE.md).

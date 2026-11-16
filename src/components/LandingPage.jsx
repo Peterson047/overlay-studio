@@ -65,6 +65,8 @@ export default function LandingPage() {
                 <nav aria-label="Links do produto">
                     <a href="/guides/add-overlay-to-obs/">Guia do OBS</a>
                     <a href="mailto:contato@qorp.com.br">Contato</a>
+                    <a href="https://github.com/abhayraghuwanshi/overlay-studio" target="_blank" rel="noreferrer">Baseado no Overlay Studio</a>
+                    <a href="https://github.com/Peterson047/overlay-studio" target="_blank" rel="noreferrer">Código-fonte (AGPL-3.0)</a>
                 </nav>
             </footer>
         </div>
