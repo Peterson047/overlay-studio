@@ -312,6 +312,47 @@ function localUsageApi() {
   }
 }
 
+// Dev-only adapter that runs the Vercel functions backed by Supabase
+// (api/projects.js, api/project-layout.js) inside Vite, with a minimal
+// req/res shim matching what Vercel passes. Server-only secrets come from
+// .env.local via loadEnv and never reach the browser bundle.
+function localServerlessApi(env, routes) {
+  for (const [k, v] of Object.entries(env)) {
+    if (/^(SUPABASE_|VITE_SUPABASE_|STRIPE_)/.test(k) && process.env[k] === undefined) process.env[k] = v
+  }
+  return {
+    name: 'local-serverless-api',
+    configureServer(server) {
+      for (const route of routes) {
+        server.middlewares.use(`/api/${route}`, async (req, res) => {
+          const url = new URL(req.originalUrl || req.url || '/', 'http://localhost')
+          let raw = ''
+          for await (const chunk of req) raw += chunk
+          const vreq = {
+            method: req.method,
+            headers: req.headers,
+            query: Object.fromEntries(url.searchParams),
+            body: raw || undefined,
+          }
+          const vres = {
+            status(code) { res.statusCode = code; return this },
+            setHeader(k, v) { res.setHeader(k, v); return this },
+            json(data) { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(data)); return this },
+            end(data) { res.end(data); return this },
+          }
+          try {
+            const mod = await server.ssrLoadModule(`/api/${route}.js`)
+            await mod.default(vreq, vres)
+          } catch (err) {
+            console.error(`[local ${route}]`, err)
+            if (!res.headersSent) { res.statusCode = 500; res.end(JSON.stringify({ error: 'Internal server error' })) }
+          }
+        })
+      }
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
@@ -321,6 +362,7 @@ export default defineConfig(({ mode }) => {
       localLayoutApi(),
       localScoresApi(env.FOOTBALL_DATA_TOKEN, env.FOOTBALL_DATA_COMPETITION || 'WC'),
       localUsageApi(),
+      localServerlessApi(env, ['projects', 'project-layout']),
     ],
     // Keep the browser target used by the previous build for OBS browser sources.
     build: {

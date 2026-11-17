@@ -149,7 +149,7 @@ Essa evolução não bloqueia a versão baseada em widgets externos. O catálogo
 
 ## 6. Conta, recuperação e propriedade dos projetos
 
-Recomendação inicial: conta qorp com e-mail confirmado e senha, recuperação por e-mail e sessão persistente. Login social pode ser acrescentado depois, vinculado ao mesmo usuário. A conta de um provedor de widgets não será requisito para acessar o qorp.
+Conta qorp com duas formas de entrar desde a 1.0: **Google** (decisão do usuário) e **e-mail e senha** com confirmação e recuperação por e-mail. As duas usam o Supabase Auth, com sessão persistente e fluxo PKCE. Quem entra com Google e depois com e-mail e senha usando o mesmo e-mail verificado continua sendo o mesmo usuário, com os mesmos projetos. A conta de um provedor de widgets não será requisito para acessar o qorp. A tela fica em `/?conta`.
 
 Regras do produto:
 
@@ -416,7 +416,9 @@ As etapas são dependências, não estimativas de prazo. Widgets são investigad
 
 ### Etapa 1 — Rede de testes
 
-Objetivo: congelar o comportamento atual em testes automatizados antes de mudar o sistema. Hoje o projeto não tem nenhum teste; só lint e build (`npm run check`). Esta etapa não muda funcionalidade, só acrescenta testes e o CI.
+Objetivo: proteger o comportamento atual em testes automatizados antes de mudar o sistema. No início do planejamento havia apenas lint e build. A infraestrutura de Vitest, Playwright e CI já foi criada; `npm run check` agora inclui os testes de unidade e de API. Correções pontuais de bugs encontrados durante essa cobertura devem incluir um teste que reproduza a falha.
+
+**Progresso em 17/11/2026:** cobertura de prioridade 2 adicionada para edição/persistência de elementos, camadas, instalação do kit Xaxinim e suas nove cenas, tema, metas, relógio, countdown, pomodoro e processamento IRC/moderação/alertas. A lista de camadas foi corrigida para corresponder à ordem do canvas, com teste de regressão. As capturas de referência de todos os templates e a ampliação da cobertura da homepage ainda estão pendentes. A existência do workflow não comprova que os checks estão configurados como obrigatórios na proteção da branch.
 
 **Ferramentas:**
 

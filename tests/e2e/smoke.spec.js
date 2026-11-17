@@ -1,6 +1,4 @@
-import { expect, test } from '@playwright/test'
-
-const uniqueRoom = (name) => `e2e-${name}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+import { expect, test, uniqueRoom } from './fixtures.js'
 
 // Collect uncaught page errors so a broken render fails the test even when
 // the boundary swallows it.

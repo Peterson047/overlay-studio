@@ -1,7 +1,9 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { Check, ChevronUp, Film, GripHorizontal, HelpCircle, Home, Layers, LayoutGrid, Pencil, Play, RotateCcw, Save, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { getRoom, isDefaultRoom, layoutUrl, newRoomId, setRoomInUrl, shareLinks } from '../config.js';
+import { getRoom, isDefaultRoom, newRoomId, setRoomInUrl, shareLinks } from '../config.js';
+import { fetchLayout, isProjectMode, projectIdFromUrl, projectObsLink, revisionFromVersion, saveLayout } from '../sync/transport.js';
+import { apiFetch } from '../auth/api.js';
 import { track } from '../analytics';
 
 // Saved-layouts library for the shared `default` room, kept per browser.
@@ -486,14 +488,11 @@ const OverlayLayout = () => {
 
     const postLayout = useCallback((body) => {
         writeEpochRef.current += 1;
-        const url = layoutUrl();
-        const payload = JSON.stringify({ ...body, _clientId: SESSION_ID });
+        const payload = { ...body, _clientId: SESSION_ID };
         const queued = writeQueueRef.current.then(async () => {
-            const res = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: payload,
-            });
+            // Base version is read at send time so queued writes chain correctly.
+            const res = await saveLayout(payload, lastVerRef.current);
+            if (!res) return true; // read-only output (OBS player)
             const data = await res.json().catch(() => null);
             if (!res.ok) {
                 if (res.status === 413) {
@@ -861,6 +860,31 @@ const OverlayLayout = () => {
     // so the room is born complete), and copies the OBS browser-source link to the
     // clipboard. If already in a room, it just re-copies the link.
     const goLive = useCallback(async () => {
+        if (isProjectMode()) {
+            // Account project: wait for pending saves, then publish the draft.
+            await writeQueueRef.current;
+            const projectId = projectIdFromUrl();
+            let toast;
+            try {
+                const result = await apiFetch('/api/projects', {
+                    method: 'POST',
+                    body: { action: 'publish', id: projectId, revision: revisionFromVersion(lastVerRef.current) },
+                });
+                const obs = result.token ? projectObsLink(projectId, result.token) : null;
+                let copied = false;
+                if (obs) { try { await navigator.clipboard.writeText(obs); copied = true; } catch { /* blocked */ } }
+                toast = { room: result.name, obs, copied, published: true, fresh: !!obs };
+                track('project_published', {});
+            } catch (err) {
+                setSyncError(err.message);
+                return;
+            }
+            if (!overlayMountedRef.current) return;
+            clearTimeout(liveToastTimerRef.current);
+            setLiveToast(toast);
+            liveToastTimerRef.current = setTimeout(() => setLiveToast(null), toast.obs ? 15000 : 6000);
+            return;
+        }
         const fresh = isDefaultRoom();
         if (fresh) {
             const roomId = newRoomId();
@@ -1490,10 +1514,11 @@ const OverlayLayout = () => {
                 const ac = new AbortController();
                 activeAbort = ac;
                 try {
-                    let url = layoutUrl();
-                    if (lastVerRef.current) url += `&v=${encodeURIComponent(lastVerRef.current)}`;
-                    if (CLEAN_MODE || libLoaded || isDefaultRoom()) url += '&lite=1';
-                    const res = await fetch(url, { cache: 'no-store', signal: ac.signal });
+                    const res = await fetchLayout({
+                        v: lastVerRef.current,
+                        lite: CLEAN_MODE || libLoaded || isDefaultRoom(),
+                        signal: ac.signal,
+                    });
                     if (!isMounted || writeEpochRef.current !== epochAtStart) {
                         // A local write happened while this GET was in flight — discard stale response.
                     } else if (res.status === 204) {
@@ -2194,8 +2219,8 @@ const OverlayLayout = () => {
                         <DockBtn icon onClick={() => setEditMode(true)} title="Edit layout">
                             <Pencil size={13} />
                         </DockBtn>
-                        <DockBtn onClick={goLive} active={!isDefaultRoom()} title={isDefaultRoom() ? 'Go Live — create a private room & copy the OBS link' : `Live in room ${getRoom()} — copy the OBS link again`}>
-                            <Play size={12} style={{ marginRight: 4 }} />{isDefaultRoom() ? 'Go Live' : 'Copy Link'}
+                        <DockBtn onClick={goLive} active={!isDefaultRoom()} title={isProjectMode() ? 'Publicar o rascunho no OBS link' : isDefaultRoom() ? 'Go Live — create a private room & copy the OBS link' : `Live in room ${getRoom()} — copy the OBS link again`}>
+                            <Play size={12} style={{ marginRight: 4 }} />{isProjectMode() ? 'Publicar' : isDefaultRoom() ? 'Go Live' : 'Copy Link'}
                         </DockBtn>
                         <DockBtn icon onClick={() => openHelp('dock', 'dock')} title="How the studio works">
                             <HelpCircle size={13} />
@@ -2295,7 +2320,7 @@ const OverlayLayout = () => {
                     >
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: '#ff7956' }}>
-                                <Check size={13} />{liveToast.fresh ? 'Room created' : 'Live'} · {liveToast.room}
+                                <Check size={13} />{liveToast.published ? 'Publicado' : liveToast.fresh ? 'Room created' : 'Live'} · {liveToast.room}
                             </div>
                             <button
                                 type="button"
@@ -2307,11 +2332,15 @@ const OverlayLayout = () => {
                             </button>
                         </div>
                         <div style={{ marginTop: 6, fontSize: 10.5, lineHeight: 1.5, color: 'rgba(255,255,255,0.6)' }}>
-                            {liveToast.copied ? 'OBS link copied to clipboard.' : 'Copy the OBS link below.'} Paste it into OBS as a Browser Source.
+                            {liveToast.published && !liveToast.obs
+                                ? 'O OBS mostra esta versão em poucos segundos. O link do OBS continua o mesmo; para gerar outro, use a página da conta.'
+                                : liveToast.published
+                                    ? `${liveToast.copied ? 'Link do OBS copiado.' : 'Copie o link do OBS abaixo.'} Cole no OBS como Fonte de navegador 1920×1080. Ele só aparece agora: guarde-o.`
+                                    : `${liveToast.copied ? 'OBS link copied to clipboard.' : 'Copy the OBS link below.'} Paste it into OBS as a Browser Source.`}
                         </div>
-                        <div style={{ marginTop: 8, padding: '6px 8px', borderRadius: 6, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', fontSize: 10, color: 'rgba(255,255,255,0.8)', wordBreak: 'break-all', userSelect: 'all' }}>
+                        {liveToast.obs && <div style={{ marginTop: 8, padding: '6px 8px', borderRadius: 6, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', fontSize: 10, color: 'rgba(255,255,255,0.8)', wordBreak: 'break-all', userSelect: 'all' }}>
                             {liveToast.obs}
-                        </div>
+                        </div>}
                     </motion.div>
                 )}
             </AnimatePresence>

@@ -29,3 +29,7 @@
 | 2026-11-16 | Origem | Fork de abhayraghuwanshi/overlay-studio, AGPL-3.0 | Créditos no README, NOTICE, homepage e estúdio; política de marca do original respeitada |
 | 2026-11-16 | Ordem | Usuário: etapa de testes e etapa de design system antes de contas | Proteger o sistema atual e construir telas novas já no visual final |
 | 2026-11-16 | Licença | Usuário: seguir na AGPL-3.0 com repositório público | Pro vende o serviço, não código fechado |
+| 2026-11-17 | Continuação | Retomar prioridade 2 da rede de testes registrada no estado atual | O commit ce335e3 já consolidou a especificação e iniciou etapas 0/1; preservar a ordem de testes e design system antes de contas |
+| 2026-11-17 | Regressão de camadas | Corrigida inversão da lista de elementos em LayerStrip | Teste reproduziu lista em ordem oposta à renderização do canvas; índice 0 é a camada frontal |
+| 2026-11-17 | Isolamento E2E | Interceptar recursos HTTP e WebSockets externos | Testes do editor e laboratório não devem depender da rede nem chamar provedores reais |
+| 2026-11-17 | Login | Usuário: Google + e-mail e senha | Supabase Auth com PKCE; tela em /?conta |

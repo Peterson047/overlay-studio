@@ -115,6 +115,7 @@ const CameraEditor = ({ slot, camStyle = {}, onChangeCamStyle }) => {
         obsConfig,
         updateObsConfig,
         reconnect,
+        disableObs,
         placeCameras,
     } = useOBS();
     const [showWsConfig, setShowWsConfig] = useState(false);
@@ -169,6 +170,9 @@ const CameraEditor = ({ slot, camStyle = {}, onChangeCamStyle }) => {
                             OBS connected
                         </span>
                         <div style={{ display: 'flex', gap: 4 }}>
+                            <button type="button" onClick={disableObs} style={WS_BTN_STYLE} title="Parar de conectar ao OBS a partir do estúdio">
+                                Desligar
+                            </button>
                             <button type="button" onClick={() => placeCameras(undefined, undefined, undefined, { syncPreview: true })} style={{ ...WS_BTN_STYLE, color: '#bbf7d0', borderColor: 'rgba(34,197,94,0.35)' }}>
                                 Sync OBS
                             </button>
@@ -215,6 +219,25 @@ const CameraEditor = ({ slot, camStyle = {}, onChangeCamStyle }) => {
                         </div>
                     )}
                 </div>
+            ) : !obsConfig?.enabled ? (
+                <div style={{
+                    fontSize: 9, fontFamily: 'monospace', lineHeight: 1.5, color: 'rgba(255,255,255,0.72)',
+                    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: 6, padding: '7px 9px', display: 'flex', flexDirection: 'column', gap: 6,
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                        <span style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
+                            Encaixe automático (opcional)
+                        </span>
+                        <button type="button" onClick={reconnect} style={WS_BTN_STYLE}>
+                            Conectar ao OBS
+                        </button>
+                    </div>
+                    <div>
+                        Com o OBS aberto e o servidor WebSocket ligado (Ferramentas → Configurações do servidor WebSocket, porta 4455),
+                        a câmera do OBS se encaixa nesta moldura sozinha. Sem isso, posicione a câmera no OBS manualmente.
+                    </div>
+                </div>
             ) : (
                 <div style={{
                     fontSize: 9,
@@ -245,6 +268,9 @@ const CameraEditor = ({ slot, camStyle = {}, onChangeCamStyle }) => {
                         <div style={{ display: 'flex', gap: 4 }}>
                             <button type="button" onClick={reconnect} style={WS_BTN_STYLE}>
                                 Retry
+                            </button>
+                            <button type="button" onClick={disableObs} style={WS_BTN_STYLE} title="Parar de tentar conectar ao OBS">
+                                Desligar
                             </button>
                             <button
                                 type="button"

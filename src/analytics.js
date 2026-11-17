@@ -18,7 +18,8 @@ const GA_ID = import.meta.env.VITE_GA_ID;
 function isOverlayLoad() {
     const q = new URLSearchParams(window.location.search);
     // widgetlab carries a private widget URL in the hash; never report it.
-    return q.has('obs') || q.has('clean') || q.has('widgetlab');
+    // conta receives one-time OAuth codes in the URL; keep them out of GA too.
+    return q.has('obs') || q.has('clean') || q.has('widgetlab') || q.has('conta');
 }
 
 export function initAnalytics() {

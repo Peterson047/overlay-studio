@@ -40,6 +40,7 @@ export default defineConfig([
       'vitest.config.js',
       'playwright.config.js',
       'tests/**/*.js',
+      'server/**/*.js',
     ],
     languageOptions: {
       globals: globals.node,

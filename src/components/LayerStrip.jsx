@@ -126,7 +126,8 @@ const LayerStrip = ({
                 </div>
             ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${narrow ? 150 : 190}px, 1fr))`, gap: 6 }}>
-                    {[...elements].reverse().map(el => {
+                    {/* Custom elements use index 0 as the front-most layer, matching the canvas. */}
+                    {elements.map(el => {
                         const t = ELEMENT_TYPE_MAP[el.type];
                         const kind = t?.label ?? el.type;
                         return (
