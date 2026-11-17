@@ -1,129 +1,199 @@
-import { ArrowDown, ArrowUpRight, Check, CloudUpload, Layers, Monitor, SlidersHorizontal } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { ArrowDown, ArrowRight, ArrowUpRight, Check, CircleCheck, Link2, SlidersHorizontal } from 'lucide-react';
+import { useI18n } from '../i18n';
+import { SiteFooter, SiteHeader } from './SiteChrome';
+import { GALLERY_THEMES, HERO_THEMES } from './homeThemes';
 import './LandingPage.css';
 
-const workflow = [
-    { icon: Layers, title: 'Teste sem cadastro', description: 'Abra o estúdio, escolha um kit de cenas e mexa à vontade. O preview fica salvo no seu navegador.' },
-    { icon: SlidersHorizontal, title: 'Personalize', description: 'Posicione câmeras, textos, metas e widgets no canvas e ajuste as cores ao seu canal.' },
-    { icon: CloudUpload, title: 'Salve na conta', description: 'Entre com Google ou e-mail. O que você montou vira um projeto que abre em qualquer computador.' },
-    { icon: Monitor, title: 'Publique no OBS', description: 'Gere o link privado e cole como Fonte de navegador. Cada nova publicação chega sozinha ao OBS.' },
-];
+const WORKS_WITH = ['OBS Studio', 'Streamlabs Desktop', 'XSplit', 'Meld Studio', 'Twitch', 'YouTube', 'Kick'];
+const ROTATE_MS = 4500;
+const FLOW_ICONS = [SlidersHorizontal, Link2, CircleCheck];
 
-const plans = [
-    {
-        name: 'Preview',
-        price: 'Sem conta',
-        items: ['Estúdio completo para testar', 'Kits de cenas e temas', 'Salvo só neste navegador'],
-        cta: { href: '/?studio', label: 'Experimentar agora' },
-    },
-    {
-        name: 'Conta grátis',
-        price: 'Grátis no beta',
-        highlight: true,
-        items: ['Projetos salvos na conta', 'Link privado e fixo para o OBS', 'Publicar com um clique', 'Até 2 projetos', 'Entrar com Google ou e-mail'],
-        cta: { href: '/?conta&criar', label: 'Criar conta grátis' },
-    },
-];
+const prefersReducedMotion = () =>
+    typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
-// Supabase keeps the session in localStorage as sb-<project>-auth-token.
-// Reading the key avoids loading the auth library on the home page.
-function hasStoredSession() {
-    try {
-        return Object.keys(localStorage).some(key => /^sb-.+-auth-token$/.test(key));
-    } catch {
-        return false;
-    }
+// Hero stage as a TV channel: on-screen display (LIVE, CH 0n, theme name),
+// a burst of static when the channel changes, and a hard offset shadow in the
+// theme colour. Flips channels on its own until the visitor takes the remote.
+const STATIC_MS = 320;
+
+function ThemeStage({ lang, t }) {
+    const [active, setActive] = useState(0);
+    const [switching, setSwitching] = useState(false);
+    const [auto, setAuto] = useState(() => !prefersReducedMotion());
+    const [paused, setPaused] = useState(false);
+    const total = HERO_THEMES.length;
+
+    const tune = useCallback((next, manual) => {
+        if (manual) setAuto(false);
+        if (prefersReducedMotion()) { setActive(next); return; }
+        setSwitching(true);
+        setTimeout(() => setActive(next), STATIC_MS / 2);
+        setTimeout(() => setSwitching(false), STATIC_MS);
+    }, []);
+
+    useEffect(() => {
+        if (!auto || paused) return undefined;
+        const id = setInterval(() => tune((active + 1) % total), ROTATE_MS);
+        return () => clearInterval(id);
+    }, [auto, paused, active, total, tune]);
+
+    const theme = HERO_THEMES[active];
+    const channel = String(active + 1).padStart(2, '0');
+    return (
+        <div
+            className="qh-tv"
+            style={{ '--theme-accent': theme.accent }}
+            onMouseEnter={() => setPaused(true)}
+            onMouseLeave={() => setPaused(false)}
+            onFocus={() => setPaused(true)}
+            onBlur={() => setPaused(false)}
+        >
+            <figure className={`qh-tv-screen${switching ? ' is-switching' : ''}`}>
+                {HERO_THEMES.map((item, i) => (
+                    <img
+                        key={item.id}
+                        src={item.image(lang)}
+                        width="1600" height="900"
+                        alt={i === active ? `${t('home.heroAlt')} — ${item.name}` : ''}
+                        aria-hidden={i !== active}
+                        className={i === active ? 'is-active' : undefined}
+                        loading={i === 0 ? 'eager' : 'lazy'}
+                        fetchPriority={i === 0 ? 'high' : 'auto'}
+                    />
+                ))}
+                <span className="qh-osd qh-osd-live" aria-hidden="true">● LIVE</span>
+                <span className="qh-osd qh-osd-ch" aria-hidden="true">CH {channel}</span>
+                <span className="qh-osd qh-osd-name" aria-hidden="true">{theme.name}</span>
+                <span className="qh-static" aria-hidden="true" />
+            </figure>
+
+            <div className="qh-remote" role="group" aria-label={t('home.themePicker')}>
+                <button type="button" className="qh-remote-step" aria-label={t('home.prevChannel')} onClick={() => tune((active - 1 + total) % total, true)}>◀</button>
+                <span className="qh-remote-label" aria-live="polite">CH {channel} · {theme.name}</span>
+                <div className="qh-ticks">
+                    {HERO_THEMES.map((item, i) => (
+                        <button
+                            key={item.id} type="button"
+                            aria-label={item.name}
+                            aria-pressed={i === active}
+                            style={{ '--tick': item.accent }}
+                            onClick={() => i !== active && tune(i, true)}
+                        >
+                            {i === active && auto && !paused && <span className="qh-tick-fill" key={active} />}
+                        </button>
+                    ))}
+                </div>
+                <button type="button" className="qh-remote-step" aria-label={t('home.nextChannel')} onClick={() => tune((active + 1) % total, true)}>▶</button>
+            </div>
+        </div>
+    );
 }
 
 export default function LandingPage() {
-    const signedIn = hasStoredSession();
+    const { t, locale } = useI18n();
+    const lang = locale === 'en' ? 'en' : 'pt';
     return (
         <div className="qorp-home">
-            <header className="qorp-home-bar">
-                <a className="qorp-home-brand" href="/">
-                    <img src="/favicon.svg" alt="" width="32" height="32" />
-                    qorpStreamer
-                </a>
-                <nav aria-label="Navegação principal">
-                    <a className="qorp-home-hide-sm" href="/?tutorial">Tutorial</a>
-                    <a className="qorp-home-hide-sm" href="/templates/">Templates</a>
-                    {signedIn
-                        ? <a className="qorp-home-button" href="/?conta">Meus projetos <ArrowUpRight size={16} aria-hidden="true" /></a>
-                        : <>
-                            <a href="/?conta">Entrar</a>
-                            <a className="qorp-home-button qorp-home-outline" href="/?conta&criar">Criar conta</a>
-                        </>}
-                </nav>
-            </header>
-            <main className="qorp-home-main">
-                <section className="qorp-home-hero">
-                    <div>
-                        <p className="qorp-home-label">Editor de overlays para OBS</p>
-                        <h1>Crie o visual da sua live<span>.</span></h1>
-                        <p className="qorp-home-lede">Monte cenas com câmeras, alertas e metas no navegador. Leve seu overlay para o OBS com um link.</p>
+            <SiteHeader />
+            <main>
+                <section className="qorp-home-main qh-hero">
+                    <div className="qh-hero-copy">
+                        <p className="qh-eyebrow"><span className="qh-dot" aria-hidden="true" />{t('home.eyebrow')}</p>
+                        <h1>{t('home.title')}</h1>
+                        <p className="qorp-home-lede">{t('home.lede')}</p>
                         <div className="qorp-home-actions">
-                            <a className="qorp-home-button" href="/?studio">Experimentar grátis <ArrowUpRight size={19} aria-hidden="true" /></a>
-                            <a className="qorp-home-secondary" href="#como-funciona">Como funciona <ArrowDown size={16} aria-hidden="true" /></a>
+                            <a className="qorp-home-button" href="/?studio">{t('common.tryFree')} <ArrowUpRight size={19} aria-hidden="true" /></a>
+                            <a className="qorp-home-secondary" href="#como-funciona">{t('home.secondary')} <ArrowDown size={16} aria-hidden="true" /></a>
                         </div>
-                        <p className="qorp-home-note">Sem cadastro para testar. Para salvar e levar ao OBS, crie sua conta: é grátis durante o beta.</p>
+                        <p className="qorp-home-note">{t('home.note')}</p>
                     </div>
-                    <figure className="qorp-home-preview">
-                        <img src="/screens/editor.jpg" width="1384" height="868" alt="Estúdio com ferramentas de edição ao lado de uma cena de gameplay" />
-                        <figcaption>Editor de cenas do qorpStreamer</figcaption>
+                    <ThemeStage lang={lang} t={t} />
+                </section>
+
+                <section className="qh-works" aria-label={t('home.worksWith')}>
+                    <div className="qorp-home-main">
+                        <span className="qorp-home-label">{t('home.worksWith')}</span>
+                        <ul>{WORKS_WITH.map(name => <li key={name}>{name}</li>)}</ul>
+                    </div>
+                </section>
+
+                <section className="qorp-home-main qh-section qh-flow-section" id="como-funciona">
+                    <p className="qorp-home-label">{t('home.flowLabel')}</p>
+                    <h2>{t('home.stepsTitle')}</h2>
+                    <ol className="qh-flow">
+                        {t('home.steps').map((step, index) => {
+                            const Icon = FLOW_ICONS[index];
+                            return (
+                                <li key={step.title} className={index === 2 ? 'is-done' : undefined}>
+                                    <span className="qh-flow-icon"><Icon size={26} aria-hidden="true" /></span>
+                                    <span className="qh-step-number">{index + 1}</span>
+                                    <h3>{step.title}</h3>
+                                    <p>{step.text}</p>
+                                </li>
+                            );
+                        })}
+                    </ol>
+                </section>
+
+                <section className="qorp-home-main qh-section" id="temas">
+                    <div className="qh-section-head">
+                        <div>
+                            <h2>{t('home.themesTitle')}</h2>
+                            <p className="qorp-home-lede">{t('home.themesLede')}</p>
+                        </div>
+                        <a className="qorp-home-secondary" href="/?studio">{t('home.allThemes')} <ArrowRight size={16} aria-hidden="true" /></a>
+                    </div>
+                    <ul className="qh-gallery">
+                        {GALLERY_THEMES.map(theme => (
+                            <li key={theme.id} style={{ '--card-accent': theme.accent }}>
+                                <a href={`/?studio&kit=${theme.kit}`} className="qh-card">
+                                    <span className="qh-card-media">
+                                        <img src={`/screens/themes/${theme.id}.jpg`} width="1280" height="720" alt="" loading="lazy" />
+                                    </span>
+                                    <span className="qh-card-body">
+                                        <span className="qh-card-name">{theme.name}</span>
+                                        <span className="qh-card-tag">{t(`home.themeTags.${theme.id}`)}</span>
+                                        <span className="qh-card-cta">{t('home.useTheme')} <ArrowRight size={14} aria-hidden="true" /></span>
+                                    </span>
+                                </a>
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+
+
+                <section className="qorp-home-main qh-section qh-features">
+                    <div>
+                        <h2>{t('home.featuresTitle')}</h2>
+                        <ul>
+                            {t('home.features').map(feature => (
+                                <li key={feature.title}>
+                                    <Check size={18} aria-hidden="true" />
+                                    <div><h3>{feature.title}</h3><p>{feature.text}</p></div>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                    <figure className="qh-frame">
+                        <img src="/screens/editor.jpg" width="1600" height="1000" alt={t('home.featuresAlt')} loading="lazy" />
                     </figure>
                 </section>
 
-                <section className="qorp-home-workflow" id="como-funciona">
-                    <h2>Do preview à transmissão</h2>
-                    <div className="qorp-home-steps">
-                        {workflow.map(({ icon: Icon, title, description }, index) => (
-                            <article key={title}>
-                                <Icon size={23} aria-hidden="true" />
-                                <h3><span className="qorp-home-step">{index + 1}</span>{title}</h3>
-                                <p>{description}</p>
-                            </article>
-                        ))}
+                <section className="qorp-home-main qh-section">
+                    <div className="qh-cta">
+                        <div>
+                            <h2>{t('home.ctaTitle')}</h2>
+                            <p>{t('home.ctaText')}</p>
+                        </div>
+                        <div className="qorp-home-actions">
+                            <a className="qorp-home-button" href="/?studio">{t('common.tryFree')} <ArrowUpRight size={19} aria-hidden="true" /></a>
+                            <a className="qorp-home-button qorp-home-outline" href="/?conta">{t('home.ctaSecondary')}</a>
+                        </div>
                     </div>
-                    <a className="qorp-home-secondary" href="/?tutorial">Ver o tutorial completo <ArrowUpRight size={16} aria-hidden="true" /></a>
-                </section>
-
-                <section className="qorp-home-plans" aria-labelledby="planos">
-                    <h2 id="planos">Comece sem pagar nada</h2>
-                    <div className="qorp-home-plan-grid">
-                        {plans.map(plan => (
-                            <article key={plan.name} className={plan.highlight ? 'is-highlight' : undefined}>
-                                <p className="qorp-home-label">{plan.name}</p>
-                                <h3>{plan.price}</h3>
-                                <ul>
-                                    {plan.items.map(item => <li key={item}><Check size={16} aria-hidden="true" />{item}</li>)}
-                                </ul>
-                                <a className={plan.highlight ? 'qorp-home-button' : 'qorp-home-button qorp-home-outline'} href={plan.cta.href}>
-                                    {plan.cta.label} <ArrowUpRight size={18} aria-hidden="true" />
-                                </a>
-                            </article>
-                        ))}
-                    </div>
-                </section>
-
-                <section className="qorp-home-template">
-                    <img className="qorp-home-channel-logo" src="/brand/xaxinim.png" alt="" width="112" height="112" loading="lazy" />
-                    <div>
-                        <p className="qorp-home-label">Kit de cenas</p>
-                        <h2>Xaxinim · Vice Beach</h2>
-                        <p>Pôr do sol neon e cenas prontas para personalizar.</p>
-                    </div>
-                    <a className="qorp-home-button" href="/?studio&kit=kit-xaxinim">Testar este kit <ArrowUpRight size={19} aria-hidden="true" /></a>
                 </section>
             </main>
-            <footer className="qorp-home-bar">
-                <span>qorpStreamer · Qorp</span>
-                <nav aria-label="Links do produto">
-                    <a href="/?tutorial">Tutorial</a>
-                    <a href="/guides/add-overlay-to-obs/">Guia do OBS</a>
-                    <a href="mailto:contato@qorp.com.br">Contato</a>
-                    <a href="https://github.com/abhayraghuwanshi/overlay-studio" target="_blank" rel="noreferrer">Baseado no Overlay Studio</a>
-                    <a href="https://github.com/Peterson047/overlay-studio" target="_blank" rel="noreferrer">Código-fonte (AGPL-3.0)</a>
-                </nav>
-            </footer>
+            <SiteFooter />
         </div>
     );
 }

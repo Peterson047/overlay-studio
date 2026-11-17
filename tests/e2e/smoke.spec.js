@@ -102,8 +102,29 @@ test('saving the preview without an account asks to sign in and keeps the design
 
 test('home offers the free preview, sign-in and the tutorial', async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByRole('link', { name: /Experimentar grátis/ })).toHaveAttribute('href', '/?studio')
+    await expect(page.getByRole('link', { name: /Experimentar grátis/ }).first()).toHaveAttribute('href', '/?studio')
     await expect(page.getByRole('link', { name: 'Entrar', exact: true })).toHaveAttribute('href', '/?conta')
     await page.getByRole('navigation', { name: 'Navegação principal' }).getByRole('link', { name: 'Tutorial' }).click()
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Do preview à sua live no OBS')
+})
+
+test.describe('english browsers', () => {
+    test.use({ locale: 'en-US' })
+
+    test('home switches to English automatically and remembers a manual choice', async ({ page }) => {
+        await page.goto('/')
+        await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+        await expect(page.getByRole('heading', { level: 1 })).toHaveText('Your stream overlay, ready in minutes.')
+        await page.getByRole('button', { name: 'PT' }).click()
+        await expect(page.getByRole('heading', { level: 1 })).toHaveText('Seu overlay de live, pronto em minutos.')
+        await page.reload()
+        await expect(page.locator('html')).toHaveAttribute('lang', 'pt-BR')
+    })
+
+    test('tutorial and account follow the language', async ({ page }) => {
+        await page.goto('/?tutorial')
+        await expect(page.getByRole('heading', { level: 1 })).toHaveText('From preview to your stream in OBS')
+        await page.goto('/?conta')
+        await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible()
+    })
 })

@@ -35,3 +35,5 @@
 | 2026-11-17 | Login | Usuário: Google + e-mail e senha | Supabase Auth com PKCE; tela em /?conta |
 | 2026-11-17 | Preview | Usuário: preview grátis sem conta; salvar e publicar exigem login | Preview só no navegador (localStorage); salas antigas ?room= continuam funcionando |
 | 2026-11-17 | OBS WebSocket | Editor só conecta após opt-in; player no OBS sempre tenta | Evita erros de conexão em quem não usa o encaixe da câmera |
+| 2026-11-17 | Login | Usuário: só Google | Sem cadastro por e-mail/senha; primeiro login cria a conta; desativar provedor Email no Supabase |
+| 2026-11-17 | Home | Hero como canal de TV (OSD, estática, sombra sólida) | Fugir do visual genérico de landing |

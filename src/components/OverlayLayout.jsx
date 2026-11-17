@@ -1821,7 +1821,7 @@ const OverlayLayout = () => {
                             </button>
                         )}
                         <a href="/" title="Home" style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}>
-                            <img src="/favicon.svg" alt="" width="22" height="22" style={{ flexShrink: 0 }} />
+                            <img src="/brand/qorp-logo-light.svg" alt="" width="22" height="22" style={{ flexShrink: 0 }} />
                             {!isNarrow && (
                                 <span style={{ fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 3, color: 'rgba(255,255,255,0.45)' }}>
                                     qorpStreamer

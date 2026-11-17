@@ -1,11 +1,12 @@
-// Conta qorp: entrar (Google ou e-mail e senha), recuperar a senha e ver os
-// projetos da conta. Rota: /?conta
+// Conta qorp: entrar com Google e ver os projetos da conta. Rota: /?conta
 import { useEffect, useState } from 'react';
 import { accountUrl, supabase } from '../auth/supabase';
 import { useSession } from '../auth/useSession';
 import { apiFetch } from '../auth/api';
 import { projectObsLink } from '../sync/transport';
 import { createProjectFrom, hasPendingImport, takeImport } from '../auth/pendingImport';
+import { useI18n } from '../i18n';
+import { LanguageSwitch, Wordmark } from './SiteChrome';
 import './AccountPage.css';
 
 const GoogleIcon = () => (
@@ -17,25 +18,17 @@ const GoogleIcon = () => (
     </svg>
 );
 
-const MESSAGES = {
-    'Invalid login credentials': 'E-mail ou senha incorretos.',
-    'Email not confirmed': 'Confirme seu e-mail antes de entrar. Procure a mensagem na caixa de entrada.',
-    'User already registered': 'Já existe uma conta com este e-mail. Entre ou recupere a senha.',
-    'Unsupported provider: provider is not enabled': 'O login com Google ainda não foi ativado no Supabase.',
-};
-const friendly = (error) => MESSAGES[error?.message] || error?.message || 'Algo deu errado. Tente de novo.';
+const friendly = (t, error) => (error?.message === 'Unsupported provider: provider is not enabled'
+    ? t('account.errors.googleDisabled')
+    : error?.message || t('account.errors.generic'));
 
-const urlParams = () => new URLSearchParams(window.location.search);
-
+// Login is Google-only: no passwords to store, recover or leak. A first
+// Google login also creates the account.
 function SignIn() {
-    // entrar | criar | recuperar — the home page links straight to ?conta&criar.
-    const [mode, setMode] = useState(() => (urlParams().has('criar') ? 'criar' : 'entrar'));
+    const { t } = useI18n();
     const importing = hasPendingImport();
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
-    const [notice, setNotice] = useState('');
 
     const google = async () => {
         setError('');
@@ -45,109 +38,29 @@ function SignIn() {
             options: { redirectTo: accountUrl() },
         });
         // On success the browser leaves the page; only errors land here.
-        if (err) { setError(friendly(err)); setBusy(false); }
+        if (err) { setError(friendly(t, err)); setBusy(false); }
     };
-
-    const submit = async (e) => {
-        e.preventDefault();
-        setError('');
-        setNotice('');
-        setBusy(true);
-        let result;
-        if (mode === 'entrar') {
-            result = await supabase.auth.signInWithPassword({ email, password });
-        } else if (mode === 'criar') {
-            result = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: accountUrl() } });
-            if (!result.error) setNotice('Enviamos um link de confirmação para o seu e-mail.');
-        } else {
-            result = await supabase.auth.resetPasswordForEmail(email, { redirectTo: accountUrl() });
-            if (!result.error) setNotice('Se houver uma conta com este e-mail, você vai receber um link para criar uma nova senha.');
-        }
-        if (result.error) setError(friendly(result.error));
-        setBusy(false);
-    };
-
-    const switchTo = (next) => { setMode(next); setError(''); setNotice(''); };
 
     return (
         <div className="qa-card">
-            <h1>{mode === 'criar' ? 'Criar conta' : mode === 'recuperar' ? 'Recuperar acesso' : importing ? 'Entre para salvar seu overlay' : 'Entrar no qorpStreamer'}</h1>
-            <p className="qa-muted">
-                {importing
-                    ? 'O que você montou no preview vira um projeto na sua conta, com link fixo para o OBS. É grátis durante o beta.'
-                    : 'Seus projetos ficam salvos na conta e abrem em qualquer computador.'}
-            </p>
-
-            {mode !== 'recuperar' && (
-                <>
-                    <button type="button" className="qa-google" onClick={google} disabled={busy}>
-                        <GoogleIcon /> Continuar com Google
-                    </button>
-                    <div className="qa-divider"><span>ou com e-mail</span></div>
-                </>
-            )}
-
-            <form onSubmit={submit} className="qa-form">
-                <label>E-mail
-                    <input type="email" required autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} />
-                </label>
-                {mode !== 'recuperar' && (
-                    <label>Senha
-                        <input
-                            type="password" required minLength={8}
-                            autoComplete={mode === 'criar' ? 'new-password' : 'current-password'}
-                            value={password} onChange={e => setPassword(e.target.value)}
-                        />
-                    </label>
-                )}
-                {error && <p role="alert" className="qa-error">{error}</p>}
-                {notice && <p role="status" className="qa-notice">{notice}</p>}
-                <button type="submit" className="qa-primary" disabled={busy}>
-                    {busy ? 'Aguarde…' : mode === 'criar' ? 'Criar conta' : mode === 'recuperar' ? 'Enviar link' : 'Entrar'}
-                </button>
-            </form>
-
-            <nav className="qa-links" aria-label="Opções de acesso">
-                {mode === 'entrar' && <>
-                    <button type="button" onClick={() => switchTo('criar')}>Criar conta</button>
-                    <button type="button" onClick={() => switchTo('recuperar')}>Esqueci a senha</button>
-                </>}
-                {mode !== 'entrar' && <button type="button" onClick={() => switchTo('entrar')}>Já tenho conta</button>}
-            </nav>
+            <h1>{t(importing ? 'account.titleImport' : 'account.titleSignIn')}</h1>
+            <p className="qa-muted">{t(importing ? 'account.ledeImport' : 'account.lede')}</p>
+            <button type="button" className="qa-google" onClick={google} disabled={busy}>
+                <GoogleIcon /> {busy ? t('account.wait') : t('account.google')}
+            </button>
+            {error && <p role="alert" className="qa-error">{error}</p>}
         </div>
     );
 }
 
-function NewPassword({ onDone }) {
-    const [password, setPassword] = useState('');
-    const [error, setError] = useState('');
-    const [busy, setBusy] = useState(false);
-    const submit = async (e) => {
-        e.preventDefault();
-        setBusy(true);
-        const { error: err } = await supabase.auth.updateUser({ password });
-        setBusy(false);
-        if (err) setError(friendly(err)); else onDone();
-    };
-    return (
-        <form className="qa-card qa-form" onSubmit={submit}>
-            <h1>Criar nova senha</h1>
-            <label>Nova senha
-                <input type="password" required minLength={8} autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} />
-            </label>
-            {error && <p role="alert" className="qa-error">{error}</p>}
-            <button type="submit" className="qa-primary" disabled={busy}>{busy ? 'Salvando…' : 'Salvar senha'}</button>
-        </form>
-    );
-}
-
 function ProjectItem({ project, onError }) {
+    const { t, locale } = useI18n();
     const [link, setLink] = useState('');
     const [copied, setCopied] = useState(false);
     const [busy, setBusy] = useState(false);
 
     const newLink = async () => {
-        if (project.hasPlaybackToken && !window.confirm('Gerar um novo link desativa o link atual no OBS. Continuar?')) return;
+        if (project.hasPlaybackToken && !window.confirm(t('account.confirmRotate'))) return;
         setBusy(true);
         try {
             const result = await apiFetch('/api/projects', { method: 'POST', body: { action: 'rotate', id: project.id } });
@@ -166,21 +79,21 @@ function ProjectItem({ project, onError }) {
                 <div>
                     <strong>{project.name}</strong>
                     <p className="qa-muted">
-                        {project.published ? `Publicado (versão ${project.publishedRevision})` : 'Ainda não publicado'}
-                        {' · '}alterado em {new Date(project.updatedAt).toLocaleString('pt-BR')}
+                        {project.published ? t('account.published', { revision: project.publishedRevision }) : t('account.notPublished')}
+                        {' · '}{t('account.changedAt', { date: new Date(project.updatedAt).toLocaleString(locale) })}
                     </p>
                 </div>
                 <div className="qa-actions">
-                    <a className="qa-primary" href={`/?project=${project.id}`}>Abrir no estúdio</a>
+                    <a className="qa-primary" href={`/?project=${project.id}`}>{t('account.openStudio')}</a>
                     <button type="button" className="qa-secondary" onClick={newLink} disabled={busy}>
-                        {project.hasPlaybackToken ? 'Novo link do OBS' : 'Gerar link do OBS'}
+                        {t(project.hasPlaybackToken ? 'account.newObsLink' : 'account.makeObsLink')}
                     </button>
                 </div>
             </div>
             {link && (
                 <div className="qa-link">
                     <p className="qa-notice">
-                        {copied ? 'Link copiado.' : 'Copie o link.'} Cole no OBS como Fonte de navegador 1920×1080. Ele só aparece agora.
+                        {t(copied ? 'account.linkCopied' : 'account.copyLink')} {t('account.linkHint')}
                     </p>
                     <code>{link}</code>
                 </div>
@@ -190,6 +103,7 @@ function ProjectItem({ project, onError }) {
 }
 
 function Projects({ session }) {
+    const { t } = useI18n();
     const [projects, setProjects] = useState(null);
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
@@ -207,7 +121,7 @@ function Projects({ session }) {
     const create = async () => {
         setBusy(true);
         try {
-            await apiFetch('/api/projects', { method: 'POST', body: { action: 'create', name: 'Meu canal' } });
+            await apiFetch('/api/projects', { method: 'POST', body: { action: 'create', name: t('account.defaultProjectName') } });
             setReload(n => n + 1);
         } catch (err) {
             setError(err.message);
@@ -223,20 +137,20 @@ function Projects({ session }) {
             <header className="qa-account">
                 {user.user_metadata?.avatar_url && <img src={user.user_metadata.avatar_url} alt="" referrerPolicy="no-referrer" />}
                 <div>
-                    <h1>{user.user_metadata?.full_name || 'Sua conta'}</h1>
-                    <p className="qa-muted">{user.email} · entra com {providers.map(p => p === 'google' ? 'Google' : 'e-mail').join(' e ')}</p>
+                    <h1>{user.user_metadata?.full_name || t('account.yourAccount')}</h1>
+                    <p className="qa-muted">{user.email} · {t('account.signsInWith', { providers: providers.map(p => (p === 'google' ? 'Google' : t('account.providerEmail'))).join(t('account.and')) })}</p>
                 </div>
-                <button type="button" className="qa-secondary" onClick={() => supabase.auth.signOut()}>Sair</button>
+                <button type="button" className="qa-secondary" onClick={() => supabase.auth.signOut()}>{t('account.signOut')}</button>
             </header>
 
             <section>
                 <div className="qa-row">
-                    <h2>Meus projetos</h2>
-                    <button type="button" className="qa-primary" onClick={create} disabled={busy}>Novo projeto</button>
+                    <h2>{t('account.projects')}</h2>
+                    <button type="button" className="qa-primary" onClick={create} disabled={busy}>{t('account.newProject')}</button>
                 </div>
                 {error && <p role="alert" className="qa-error">{error}</p>}
-                {!projects && !error && <p className="qa-muted">Carregando…</p>}
-                {projects?.length === 0 && <p className="qa-muted">Você ainda não tem projetos.</p>}
+                {!projects && !error && <p className="qa-muted">{t('account.loading')}</p>}
+                {projects?.length === 0 && <p className="qa-muted">{t('account.noProjects')}</p>}
                 {projects?.length > 0 && (
                     <ul className="qa-projects">
                         {projects.filter(p => !p.deletedAt).map(p => (
@@ -251,6 +165,7 @@ function Projects({ session }) {
 
 // After login, turns the stashed preview design into a project and opens it.
 function ImportPending() {
+    const { t } = useI18n();
     const [error, setError] = useState('');
     useEffect(() => {
         const draft = takeImport();
@@ -261,29 +176,32 @@ function ImportPending() {
     }, []);
     return (
         <div className="qa-card">
-            <h1>{error ? 'Não foi possível salvar o preview' : 'Salvando seu overlay na conta…'}</h1>
+            <h1>{t(error ? 'account.importFailed' : 'account.importing')}</h1>
             {error && <>
                 <p role="alert" className="qa-error">{error}</p>
-                <a className="qa-primary" href="/?conta">Ver meus projetos</a>
+                <a className="qa-primary" href="/?conta">{t('common.myProjects')}</a>
             </>}
         </div>
     );
 }
 
 export default function AccountPage() {
-    const { loading, session, recovering, finishRecovery } = useSession();
+    const { loading, session } = useSession();
+    const { t } = useI18n();
 
     let body;
-    if (!supabase) body = <div className="qa-card"><h1>Contas indisponíveis</h1><p className="qa-muted">Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.</p></div>;
-    else if (loading) body = <p role="status" className="qa-muted">Carregando…</p>;
-    else if (recovering && session) body = <NewPassword onDone={finishRecovery} />;
+    if (!supabase) body = <div className="qa-card"><h1>{t('account.unavailableTitle')}</h1><p className="qa-muted">{t('account.unavailableText')}</p></div>;
+    else if (loading) body = <p role="status" className="qa-muted">{t('account.loading')}</p>;
     else if (session && hasPendingImport()) body = <ImportPending />;
     else if (session) body = <Projects session={session} />;
     else body = <SignIn />;
 
     return (
         <div className="qa-page">
-            <a href="/" className="qa-brand">qorpStreamer</a>
+            <div className="qa-top">
+                <a href="/" className="qa-brand" aria-label="qorpStreamer"><Wordmark size={34} /></a>
+                <LanguageSwitch />
+            </div>
             <main>{body}</main>
         </div>
     );

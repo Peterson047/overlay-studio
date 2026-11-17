@@ -15,10 +15,10 @@
 .qt-body ul, .qt-body ol { padding-left: 22px; display: grid; gap: 8px; }
 .qt-body ul { list-style: disc; }
 .qt-body ol { list-style: decimal; }
-.qt-body li::marker { color: var(--lime); }
-.qt-body section a, .qt-body > p a { color: var(--lime); text-decoration: underline; text-underline-offset: 3px; }
+.qt-body li::marker { color: var(--red); }
+.qt-body section a, .qt-body > p a { color: #ff5a6c; text-decoration: underline; text-underline-offset: 3px; }
 .qt-body strong { color: var(--ink); }
-.qt-note { padding: 14px 16px; border-left: 3px solid var(--lime); background: #20231f; }
+.qt-note { padding: 14px 16px; border-left: 3px solid var(--red); border-radius: 0 10px 10px 0; background: var(--surface); }
 .qt-body dl { display: grid; gap: 6px; }
 .qt-body dt { margin-top: 14px; font-weight: 650; color: var(--ink); }
 .qt-body dd { margin: 0; }
@@ -29,3 +29,4 @@
     .qt-toc { position: static; }
 }
 .qt-body section > * + *, .qt-body > p + p { margin-top: 14px; }
+.qt-help { margin-top: 40px; }

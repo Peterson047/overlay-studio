@@ -68,7 +68,7 @@ O problema de acesso é concreto: conhecer o identificador atual permite consult
 
 1. **Conhecer.** Ver kits reais e uma demonstração identificada, em português.
 2. **Testar sem conta.** O estúdio abre como **preview grátis** em `/?studio`: tudo funciona, mas fica salvo só no navegador e não gera link do OBS. Nada é enviado ao servidor.
-3. **Criar conta.** **Salvar e publicar** pede login (Google ou e-mail) e transforma o preview num projeto da conta.
+3. **Criar conta.** **Salvar e publicar** pede login com Google e transforma o preview num projeto da conta.
 4. **Configurar o canal.** Informar nome, logo e cores uma vez, com ajustes por cena quando necessário.
 5. **Escolher o kit.** Começar com início, gameplay, conversa, intervalo e encerramento.
 6. **Adicionar widgets.** Colar uma URL do provedor, definir tamanho/posição e testar a compatibilidade.
@@ -150,7 +150,7 @@ Essa evolução não bloqueia a versão baseada em widgets externos. O catálogo
 
 ## 6. Conta, recuperação e propriedade dos projetos
 
-Conta qorp com duas formas de entrar desde a 1.0: **Google** (decisão do usuário) e **e-mail e senha** com confirmação e recuperação por e-mail. As duas usam o Supabase Auth, com sessão persistente e fluxo PKCE. Quem entra com Google e depois com e-mail e senha usando o mesmo e-mail verificado continua sendo o mesmo usuário, com os mesmos projetos. A conta de um provedor de widgets não será requisito para acessar o qorp. A tela fica em `/?conta`.
+**Login só com Google** (decisão do usuário, 17/11/2026). O primeiro login cria a conta. Não há cadastro por e-mail e senha: o qorp não guarda, recupera nem pode vazar senhas, e a recuperação de acesso é a da própria conta Google. Usa o Supabase Auth com sessão persistente e fluxo PKCE. O provedor Email deve ficar desativado no Supabase para bloquear cadastro por e-mail também pela API. A conta de um provedor de widgets não será requisito para acessar o qorp. A tela fica em `/?conta`.
 
 Regras do produto:
 
