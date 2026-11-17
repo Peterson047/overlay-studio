@@ -77,3 +77,33 @@ test('widget lab refuses local addresses', async ({ page }) => {
     await expect(page.getByRole('alert')).toContainText('Endereços locais')
     await expect(page.locator('iframe')).toHaveCount(0)
 })
+
+test('free preview works without an account and never touches the server', async ({ page }) => {
+    const errors = trackErrors(page)
+    const serverCalls = []
+    page.on('request', (r) => { if (/\/api\/(layout|project)/.test(r.url())) serverCalls.push(r.url()) })
+    await page.addInitScript(() => localStorage.setItem('help_seen', '1'))
+    await page.goto('/?studio')
+    await expect(page.getByText('Preview grátis.')).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByTitle(/Entre para salvar/)).toBeVisible()
+    await page.waitForTimeout(1_000)
+    expect(serverCalls).toEqual([])
+    expect(errors).toEqual([])
+})
+
+test('saving the preview without an account asks to sign in and keeps the design', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('help_seen', '1'))
+    await page.goto('/?studio')
+    await page.getByRole('button', { name: 'Entrar e salvar' }).click()
+    await expect(page).toHaveURL(/\?conta&importar/)
+    await expect(page.getByRole('heading', { name: 'Entre para salvar seu overlay' })).toBeVisible()
+    expect(await page.evaluate(() => !!localStorage.getItem('qorp_pending_import'))).toBe(true)
+})
+
+test('home offers the free preview, sign-in and the tutorial', async ({ page }) => {
+    await page.goto('/')
+    await expect(page.getByRole('link', { name: /Experimentar grátis/ })).toHaveAttribute('href', '/?studio')
+    await expect(page.getByRole('link', { name: 'Entrar', exact: true })).toHaveAttribute('href', '/?conta')
+    await page.getByRole('navigation', { name: 'Navegação principal' }).getByRole('link', { name: 'Tutorial' }).click()
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Do preview à sua live no OBS')
+})

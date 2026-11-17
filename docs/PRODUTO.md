@@ -67,14 +67,15 @@ O problema de acesso é concreto: conhecer o identificador atual permite consult
 ## 3. Jornada principal
 
 1. **Conhecer.** Ver kits reais e uma demonstração identificada, em português.
-2. **Criar conta.** Entrar, confirmar o e-mail e criar um projeto recuperável.
-3. **Configurar o canal.** Informar nome, logo e cores uma vez, com ajustes por cena quando necessário.
-4. **Escolher o kit.** Começar com início, gameplay, conversa, intervalo e encerramento.
-5. **Adicionar widgets.** Colar uma URL do provedor, definir tamanho/posição e testar a compatibilidade.
-6. **Preparar.** Editar o rascunho e visualizar o resultado sem alterar a transmissão publicada.
-7. **Publicar no OBS.** Receber link privado, dimensões, instruções e uma prévia da saída.
-8. **Operar.** Trocar cenas do overlay, controlar timers e identificar problemas em um painel simples.
-9. **Voltar.** Entrar em qualquer computador e continuar do projeto salvo, inclusive após recuperar a senha.
+2. **Testar sem conta.** O estúdio abre como **preview grátis** em `/?studio`: tudo funciona, mas fica salvo só no navegador e não gera link do OBS. Nada é enviado ao servidor.
+3. **Criar conta.** **Salvar e publicar** pede login (Google ou e-mail) e transforma o preview num projeto da conta.
+4. **Configurar o canal.** Informar nome, logo e cores uma vez, com ajustes por cena quando necessário.
+5. **Escolher o kit.** Começar com início, gameplay, conversa, intervalo e encerramento.
+6. **Adicionar widgets.** Colar uma URL do provedor, definir tamanho/posição e testar a compatibilidade.
+7. **Preparar.** Editar o rascunho e visualizar o resultado sem alterar a transmissão publicada.
+8. **Publicar no OBS.** Receber link privado, dimensões, instruções e uma prévia da saída.
+9. **Operar.** Trocar cenas do overlay, controlar timers e identificar problemas em um painel simples.
+10. **Voltar.** Entrar em qualquer computador e continuar do projeto salvo, inclusive após recuperar a senha.
 
 O OBS documenta fontes de navegador por URL, dimensões e opções de recarga/visibilidade. Esses parâmetros devem fazer parte da instalação orientada. Câmera, jogo e captura de tela continuam sendo fontes configuradas no OBS. [Fonte: OBS Browser Source](https://obsproject.com/kb/browser-source).
 

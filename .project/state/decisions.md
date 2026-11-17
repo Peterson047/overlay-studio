@@ -33,3 +33,5 @@
 | 2026-11-17 | Regressão de camadas | Corrigida inversão da lista de elementos em LayerStrip | Teste reproduziu lista em ordem oposta à renderização do canvas; índice 0 é a camada frontal |
 | 2026-11-17 | Isolamento E2E | Interceptar recursos HTTP e WebSockets externos | Testes do editor e laboratório não devem depender da rede nem chamar provedores reais |
 | 2026-11-17 | Login | Usuário: Google + e-mail e senha | Supabase Auth com PKCE; tela em /?conta |
+| 2026-11-17 | Preview | Usuário: preview grátis sem conta; salvar e publicar exigem login | Preview só no navegador (localStorage); salas antigas ?room= continuam funcionando |
+| 2026-11-17 | OBS WebSocket | Editor só conecta após opt-in; player no OBS sempre tenta | Evita erros de conexão em quem não usa o encaixe da câmera |

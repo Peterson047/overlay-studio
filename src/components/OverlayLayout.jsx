@@ -2,7 +2,9 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Check, ChevronUp, Film, GripHorizontal, HelpCircle, Home, Layers, LayoutGrid, Pencil, Play, RotateCcw, Save, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { getRoom, isDefaultRoom, newRoomId, setRoomInUrl, shareLinks } from '../config.js';
-import { fetchLayout, isProjectMode, projectIdFromUrl, projectObsLink, revisionFromVersion, saveLayout } from '../sync/transport.js';
+import { fetchLayout, isPreviewMode, isProjectMode, previewDraft, projectIdFromUrl, projectObsLink, revisionFromVersion, saveLayout } from '../sync/transport.js';
+import { createProjectFrom, stashImport } from '../auth/pendingImport.js';
+import { supabase } from '../auth/supabase.js';
 import { apiFetch } from '../auth/api.js';
 import { track } from '../analytics';
 
@@ -860,6 +862,30 @@ const OverlayLayout = () => {
     // so the room is born complete), and copies the OBS browser-source link to the
     // clipboard. If already in a room, it just re-copies the link.
     const goLive = useCallback(async () => {
+        if (isPreviewMode()) {
+            // Free preview → account project. Logged in: create it now.
+            // Otherwise carry the design through the login redirect.
+            await writeQueueRef.current;
+            const draft = { ...previewDraft(), layouts: loadLocalLibrary() };
+            const { data } = supabase ? await supabase.auth.getSession() : { data: {} };
+            if (data?.session) {
+                try {
+                    const project = await createProjectFrom(draft);
+                    track('preview_saved', {});
+                    window.location.href = `/?project=${project.id}`;
+                } catch (err) {
+                    setSyncError(`${err.message} Abra Meus projetos em /?conta.`);
+                }
+                return;
+            }
+            if (!stashImport(draft)) {
+                setSyncError('Não foi possível guardar o preview neste navegador. Entre e recomece pelo estúdio.');
+                return;
+            }
+            track('preview_login', {});
+            window.location.href = '/?conta&importar';
+            return;
+        }
         if (isProjectMode()) {
             // Account project: wait for pending saves, then publish the draft.
             await writeQueueRef.current;
@@ -2219,8 +2245,8 @@ const OverlayLayout = () => {
                         <DockBtn icon onClick={() => setEditMode(true)} title="Edit layout">
                             <Pencil size={13} />
                         </DockBtn>
-                        <DockBtn onClick={goLive} active={!isDefaultRoom()} title={isProjectMode() ? 'Publicar o rascunho no OBS link' : isDefaultRoom() ? 'Go Live — create a private room & copy the OBS link' : `Live in room ${getRoom()} — copy the OBS link again`}>
-                            <Play size={12} style={{ marginRight: 4 }} />{isProjectMode() ? 'Publicar' : isDefaultRoom() ? 'Go Live' : 'Copy Link'}
+                        <DockBtn onClick={goLive} active={!isDefaultRoom()} title={isPreviewMode() ? 'Entre para salvar na conta e gerar o link do OBS' : isProjectMode() ? 'Publicar o rascunho no OBS link' : isDefaultRoom() ? 'Go Live — create a private room & copy the OBS link' : `Live in room ${getRoom()} — copy the OBS link again`}>
+                            <Play size={12} style={{ marginRight: 4 }} />{isPreviewMode() ? 'Salvar e publicar' : isProjectMode() ? 'Publicar' : isDefaultRoom() ? 'Go Live' : 'Copy Link'}
                         </DockBtn>
                         <DockBtn icon onClick={() => openHelp('dock', 'dock')} title="How the studio works">
                             <HelpCircle size={13} />
@@ -2305,6 +2331,23 @@ const OverlayLayout = () => {
                     >
                         <X size={13} />
                     </button>
+                </div>
+            )}
+
+            {/* Free preview notice: nothing is saved outside this browser. */}
+            {isPreviewMode() && !CLEAN_MODE && (
+                <div role="status" style={{
+                    position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 390,
+                    display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', justifyContent: 'center',
+                    width: 'max-content', maxWidth: 'calc(100vw - 24px)', padding: '8px 10px 8px 14px',
+                    background: 'rgba(21,23,20,0.94)', border: '1px solid rgba(215,247,123,0.35)', borderRadius: 10,
+                    color: '#f0f0e9', fontFamily: 'Inter, sans-serif', fontSize: 13, boxShadow: '0 8px 30px rgba(0,0,0,0.5)',
+                }}>
+                    <span><strong style={{ color: '#d7f77b' }}>Preview grátis.</strong> Suas alterações ficam só neste navegador.</span>
+                    <button type="button" onClick={goLive} style={{
+                        font: 'inherit', fontWeight: 600, minHeight: 32, padding: '0 12px',
+                        background: '#d7f77b', color: '#151714', border: 0, borderRadius: 6, cursor: 'pointer',
+                    }}>Entrar e salvar</button>
                 </div>
             )}
 

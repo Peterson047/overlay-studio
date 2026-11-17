@@ -5,6 +5,7 @@ import { accountUrl, supabase } from '../auth/supabase';
 import { useSession } from '../auth/useSession';
 import { apiFetch } from '../auth/api';
 import { projectObsLink } from '../sync/transport';
+import { createProjectFrom, hasPendingImport, takeImport } from '../auth/pendingImport';
 import './AccountPage.css';
 
 const GoogleIcon = () => (
@@ -24,8 +25,12 @@ const MESSAGES = {
 };
 const friendly = (error) => MESSAGES[error?.message] || error?.message || 'Algo deu errado. Tente de novo.';
 
+const urlParams = () => new URLSearchParams(window.location.search);
+
 function SignIn() {
-    const [mode, setMode] = useState('entrar'); // entrar | criar | recuperar
+    // entrar | criar | recuperar — the home page links straight to ?conta&criar.
+    const [mode, setMode] = useState(() => (urlParams().has('criar') ? 'criar' : 'entrar'));
+    const importing = hasPendingImport();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [busy, setBusy] = useState(false);
@@ -66,8 +71,12 @@ function SignIn() {
 
     return (
         <div className="qa-card">
-            <h1>{mode === 'criar' ? 'Criar conta' : mode === 'recuperar' ? 'Recuperar acesso' : 'Entrar no qorpStreamer'}</h1>
-            <p className="qa-muted">Seus projetos ficam salvos na conta e abrem em qualquer computador.</p>
+            <h1>{mode === 'criar' ? 'Criar conta' : mode === 'recuperar' ? 'Recuperar acesso' : importing ? 'Entre para salvar seu overlay' : 'Entrar no qorpStreamer'}</h1>
+            <p className="qa-muted">
+                {importing
+                    ? 'O que você montou no preview vira um projeto na sua conta, com link fixo para o OBS. É grátis durante o beta.'
+                    : 'Seus projetos ficam salvos na conta e abrem em qualquer computador.'}
+            </p>
 
             {mode !== 'recuperar' && (
                 <>
@@ -240,6 +249,27 @@ function Projects({ session }) {
     );
 }
 
+// After login, turns the stashed preview design into a project and opens it.
+function ImportPending() {
+    const [error, setError] = useState('');
+    useEffect(() => {
+        const draft = takeImport();
+        if (!draft) { window.location.replace('/?conta'); return; }
+        createProjectFrom(draft)
+            .then(project => window.location.replace(`/?project=${project.id}`))
+            .catch(err => setError(err.message));
+    }, []);
+    return (
+        <div className="qa-card">
+            <h1>{error ? 'Não foi possível salvar o preview' : 'Salvando seu overlay na conta…'}</h1>
+            {error && <>
+                <p role="alert" className="qa-error">{error}</p>
+                <a className="qa-primary" href="/?conta">Ver meus projetos</a>
+            </>}
+        </div>
+    );
+}
+
 export default function AccountPage() {
     const { loading, session, recovering, finishRecovery } = useSession();
 
@@ -247,6 +277,7 @@ export default function AccountPage() {
     if (!supabase) body = <div className="qa-card"><h1>Contas indisponíveis</h1><p className="qa-muted">Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.</p></div>;
     else if (loading) body = <p role="status" className="qa-muted">Carregando…</p>;
     else if (recovering && session) body = <NewPassword onDone={finishRecovery} />;
+    else if (session && hasPendingImport()) body = <ImportPending />;
     else if (session) body = <Projects session={session} />;
     else body = <SignIn />;
 

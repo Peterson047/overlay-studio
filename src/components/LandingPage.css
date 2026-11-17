@@ -70,7 +70,7 @@
 .qorp-home-preview figcaption { padding: 11px 14px; }
 .qorp-home-workflow { border-top: 1px solid var(--line); padding-block: 36px 48px; }
 .qorp-home h2 { margin: 0; font-size: clamp(28px, 4vw, 48px); font-weight: 650; letter-spacing: -.045em; }
-.qorp-home-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 22px; }
+.qorp-home-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-block: 22px 12px; }
 .qorp-home-steps article { padding: 24px; background: #20231f; border: 1px solid var(--line); }
 .qorp-home-steps h3 { margin: 14px 0 6px; font-size: 18px; font-weight: 650; }
 .qorp-home-steps p, .qorp-home-template p:last-child { margin: 0; color: var(--muted); line-height: 1.6; }
@@ -89,11 +89,34 @@
 .qorp-home-template > div { flex: 1 1 240px; }
 .qorp-home footer { border-top: 1px solid var(--line); border-bottom: 0; flex-wrap: wrap; color: var(--muted); font-size: 14px; }
 
+@media (max-width: 1100px) {
+    .qorp-home-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 760px) {
-    .qorp-home-hero, .qorp-home-steps { grid-template-columns: 1fr; }
+    .qorp-home-hero, .qorp-home-steps, .qorp-home-plan-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+    .qorp-home-hide-sm { display: none; }
 }
 @media (max-width: 360px) {
     .qorp-home-bar nav .qorp-home-outline { padding-inline: 8px; gap: 4px; }
 }
 
 body:has(.qorp-home) { overflow: auto; }
+
+.qorp-home-note { margin-top: 14px; color: var(--muted); font-size: 14px; max-width: 46ch; }
+.qorp-home-step {
+    display: inline-grid; place-items: center; width: 24px; height: 24px; margin-right: 10px;
+    border: 1px solid var(--line); font: 12px/1 Consolas, "Liberation Mono", monospace; color: var(--lime);
+    vertical-align: 2px;
+}
+.qorp-home-plans { border-top: 1px solid var(--line); padding-block: 36px 48px; }
+.qorp-home-plan-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 22px; }
+.qorp-home-plan-grid article { display: grid; gap: 16px; align-content: start; padding: clamp(22px, 3vw, 32px); background: #20231f; border: 1px solid var(--line); }
+.qorp-home-plan-grid article.is-highlight { border-color: var(--lime); }
+.qorp-home-plan-grid .qorp-home-label { margin: 0; }
+.qorp-home-plan-grid h3 { margin: 0; font-size: 28px; font-weight: 650; letter-spacing: -.03em; }
+.qorp-home-plan-grid ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; color: var(--muted); }
+.qorp-home-plan-grid li { display: flex; gap: 10px; align-items: flex-start; line-height: 1.5; }
+.qorp-home-plan-grid li svg { color: var(--lime); flex-shrink: 0; margin-top: 4px; }
+.qorp-home-plan-grid .qorp-home-button { justify-self: start; }

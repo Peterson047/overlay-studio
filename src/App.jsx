@@ -5,6 +5,7 @@ const Studio = lazy(() => import('./components/Studio'));
 const Showcase = lazy(() => import('./components/Showcase'));
 const WidgetLab = lazy(() => import('./components/WidgetLab'));
 const AccountPage = lazy(() => import('./components/AccountPage'));
+const TutorialPage = lazy(() => import('./components/TutorialPage'));
 const statusStyle = {
     minHeight: '100dvh', display: 'grid', placeContent: 'center', gap: 16,
     padding: 32, background: '#151714', color: '#f0f0e9',
@@ -42,12 +43,12 @@ function App() {
     const params = new URLSearchParams(window.location.search);
     const isStudio = ['room', 'obs', 'studio', 'project'].some(key => params.has(key));
     const loading = params.has('obs') ? null : (
-        <div role="status" style={statusStyle}>Abrindo o estúdio…</div>
+        <div role="status" style={statusStyle}>{isStudio ? 'Abrindo o estúdio…' : 'Carregando…'}</div>
     );
     return (
         <AppBoundary>
             <Suspense fallback={loading}>
-                {params.has('conta') ? <AccountPage /> : params.has('widgetlab') ? <WidgetLab /> : params.has('showcase') ? <Showcase /> : isStudio ? <Studio /> : <LandingPage />}
+                {params.has('tutorial') ? <TutorialPage /> : params.has('conta') ? <AccountPage /> : params.has('widgetlab') ? <WidgetLab /> : params.has('showcase') ? <Showcase /> : isStudio ? <Studio /> : <LandingPage />}
             </Suspense>
         </AppBoundary>
     );
