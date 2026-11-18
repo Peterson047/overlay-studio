@@ -1,8 +1,28 @@
 import { applyLayoutWrite } from '../layout.store.js';
 import { validateWidgetUrl } from '../src/utils/widgetLab.js';
+import { inspectLayoutRequirements } from '../src/theme/entitlements.js';
 import { HttpError } from './qorp.js';
 
-export function validateLayout(layout) {
+export function assertDraftAllowed(draft, entitlements) {
+    const reqs = inspectLayoutRequirements(draft || {});
+    if (reqs.requiresOwner && !entitlements?.isOwner) {
+        throw new HttpError(
+            403,
+            'O kit e tema Xaxinim são exclusivos para contas autorizadas.',
+            'OWNER_ONLY'
+        );
+    }
+    if (reqs.requiresPro && !entitlements?.isPro) {
+        throw new HttpError(
+            403,
+            'Este tema ou kit faz parte do plano Pro. Assine o Pro para salvar ou publicar.',
+            'PRO_REQUIRED'
+        );
+    }
+    return reqs;
+}
+
+export function validateLayout(layout, { entitlements } = {}) {
     if (!layout || typeof layout !== 'object' || Array.isArray(layout)) throw new HttpError(400, 'Layout inválido.');
     if (Buffer.byteLength(JSON.stringify(layout)) > 2_000_000) throw new HttpError(413, 'Projeto acima de 2 MB.');
     const visit = snapshot => {
@@ -14,9 +34,10 @@ export function validateLayout(layout) {
                 if (error) throw new HttpError(400, error);
             }
         }
-        for (const layout of snapshot.layouts || []) for (const scene of layout.scenes || []) visit(scene.snapshot);
+        for (const item of snapshot.layouts || []) for (const scene of item.scenes || []) visit(scene.snapshot);
     };
     visit(layout);
+    if (entitlements) assertDraftAllowed(layout, entitlements);
     return layout;
 }
 

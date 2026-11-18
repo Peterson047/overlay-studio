@@ -1076,6 +1076,7 @@ const ElementRenderer = ({
     liveState = {},
     serverOffsetMs = 0,
     onLiveAction,
+    allowOwner = false,
 }) => {
     const T = theme ?? DEFAULT_THEME;
     // Resolve any theme tokens (@accent, @text, @radius…) to concrete values.
@@ -1146,7 +1147,7 @@ const ElementRenderer = ({
 
     // ── Backdrop ── animated full-canvas scenery from the style kit
     if (type === 'backdrop') {
-        return <Backdrop variant={resolved.variant} T={T} opacity={opacity} holes={holes} box={element.box} />;
+        return <Backdrop variant={resolved.variant} T={T} opacity={opacity} holes={holes} box={element.box} includeOwner={allowOwner} />;
     }
 
     // ── Lower Third ──

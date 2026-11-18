@@ -273,7 +273,7 @@ Proposta para validar no piloto. Os números são o ponto de partida para medir 
 | Widgets externos | Ilimitados | Ilimitados |
 | Armazenamento de mídia | 250 MB | 5 GB |
 | Tamanho máximo por arquivo | 10 MB | 50 MB |
-| Kits | Kits base | Kits base + kits premium (ex.: Xaxinim) |
+| Kits | 5 temas/kits base (`Midnight`, `Neon`, `Minimal`, `Warm`, `Aurora`) | Todos os temas e kits públicos |
 | Histórico de publicações para restaurar | Últimas 5 | Últimas 50 |
 | Links OBS ativos por projeto | 1 | 3 (ex.: um por computador) |
 | Lixeira | 30 dias | 30 dias |
@@ -562,8 +562,10 @@ Métricas iniciais: tempo até primeira publicação funcionando no OBS, conclus
 | --- | --- |
 | Provedores além do Streamlabs | Validar URLs autorizadas reais de LivePix e StreamElements após o Streamlabs; não publicar compatibilidade só com base na documentação |
 | Números dos planos | Proposta Gratuito/Pro e preço de referência na seção 8; validar no piloto com o custo medido |
-| Licença e créditos | Feito: `LICENSE`, `NOTICE.md`, créditos no README, links na homepage e palavras-chave do SEO. Falta a tela **Sobre** no estúdio, com créditos e link do código-fonte |
+| Licença e créditos | Feito: `LICENSE`, `NOTICE.md`, créditos no README, links na homepage, aba **Sobre** no estúdio com link do código-fonte e palavras-chave do SEO |
 | Kits premium sob AGPL | Confirmar com assessoria jurídica se a arte dos kits premium pode ter licença separada do código |
+| Dados da empresa nos textos legais | Preencher [RAZÃO SOCIAL], [CNPJ], [ENDEREÇO COMPLETO] e [NOME DO ENCARREGADO] em `src/components/legal/content.js` |
+| Rotina de purga | A Política de Privacidade promete apagar projetos da lixeira e contas excluídas em 30 dias. Hoje não há limpeza automática (a API só bloqueia a restauração) e a exclusão de conta é pedida por e-mail. Criar um cron de purga antes do lançamento |
 | Textos legais | Revisar política de reembolso, termos de uso e política de privacidade com assessoria jurídica antes de ativar o Pro |
 | Transporte de sincronização | Medir polling e WebSocket na Vercel com a mesma carga e requisitos |
 

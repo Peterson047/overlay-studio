@@ -6,6 +6,9 @@ const baseURL = `http://localhost:${PORTS.FRONTEND}`
 export default defineConfig({
     testDir: 'tests/e2e',
     fullyParallel: true,
+    // One Vite dev server backs every test; too many browsers at once starve
+    // it and editor tests time out. Keep parallelism modest.
+    workers: process.env.CI ? 2 : 4,
     forbidOnly: !!process.env.CI,
     retries: process.env.CI ? 1 : 0,
     reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',

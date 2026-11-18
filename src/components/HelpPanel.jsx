@@ -1,131 +1,169 @@
 import { motion } from 'framer-motion';
-import { ChevronUp, Eye, Film, GripHorizontal, HelpCircle, Home, LayoutGrid, Pencil, Play, Plus, RotateCcw, Save, Trash2, X } from 'lucide-react';
+import { ArrowUpRight, ChevronUp, Eye, Film, GripHorizontal, HelpCircle, Home, LayoutGrid, Pencil, Play, Plus, RotateCcw, Save, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { Button, IconButton, SegmentButton } from '../ui';
+import { useI18n } from '../i18n';
+import { tx } from '../i18n/studio';
 
 const MotionDiv = motion.div;
 
 // In-app guide to the studio: what each dock button does, what you can do in
-// edit mode, and how to get the overlay into OBS. Opened from the "?" in the
-// dock / edit header, and once automatically on a first visit (see OverlayLayout).
+// edit mode, how to get the overlay into OBS, and AGPL-3.0 credits (About).
+// Opened from the "?" in the edit header, and once on a first visit.
 
-
-// Lookalike of the real dock / header button, so the guide reads "this one".
 const Key = ({ children, accent }) => (
     <span style={{
-        display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 7, flexShrink: 0,
-        fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1, lineHeight: 1, whiteSpace: 'nowrap',
-        border: `1px solid ${accent ? 'rgba(255,121,86,0.5)' : 'rgba(255,255,255,0.12)'}`,
-        background: accent ? 'rgba(242,96,56,0.45)' : 'rgba(255,255,255,0.04)',
-        color: accent ? '#fff' : 'rgba(255,255,255,0.7)',
+        display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px',
+        borderRadius: 'var(--qs-radius-sm)', flexShrink: 0,
+        fontSize: 11, fontWeight: 600, fontFamily: 'var(--qs-font)', lineHeight: 1.1, whiteSpace: 'nowrap',
+        border: `1px solid ${accent ? 'var(--qs-accent-line)' : 'var(--qs-line-strong)'}`,
+        background: accent ? 'var(--qs-accent-soft)' : 'var(--qs-field)',
+        color: accent ? 'var(--qs-text)' : 'var(--qs-text-dim)',
     }}>
         {children}
     </span>
 );
 
 const Row = ({ k, title, children }) => (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 132px) minmax(0, 1fr)', gap: 14, alignItems: 'start', padding: '11px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 140px) minmax(0, 1fr)', gap: 14, alignItems: 'start', padding: '11px 0', borderTop: '1px solid var(--qs-line)' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{k}</div>
         <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>{title}</div>
-            <div style={{ fontSize: 11.5, lineHeight: 1.55, color: 'rgba(255,255,255,0.55)', marginTop: 3 }}>{children}</div>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--qs-text)' }}>{title}</div>
+            <div style={{ fontSize: 12, lineHeight: 1.55, color: 'var(--qs-text-dim)', marginTop: 3 }}>{children}</div>
         </div>
     </div>
 );
 
 const Step = ({ n, children }) => (
-    <div style={{ display: 'flex', gap: 12, padding: '11px 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-        <span style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(242,96,56,0.45)', border: '1px solid rgba(255,121,86,0.5)', color: '#fff', fontSize: 10, fontFamily: 'monospace' }}>{n}</span>
-        <div style={{ fontSize: 11.5, lineHeight: 1.6, color: 'rgba(255,255,255,0.65)', paddingTop: 2 }}>{children}</div>
+    <div style={{ display: 'flex', gap: 12, padding: '11px 0', borderTop: '1px solid var(--qs-line)' }}>
+        <span style={{
+            width: 22, height: 22, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'var(--qs-accent)', color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: 'var(--qs-font)',
+        }}>{n}</span>
+        <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--qs-text-dim)', paddingTop: 1 }}>{children}</div>
     </div>
 );
 
-const B = ({ children }) => <b style={{ color: 'rgba(255,255,255,0.92)', fontWeight: 600 }}>{children}</b>;
-
 const Dock = () => (
     <>
-        <p style={{ margin: '0 0 6px', fontSize: 11.5, lineHeight: 1.6, color: 'rgba(255,255,255,0.55)' }}>
-            The bar at the bottom of the screen. It's how you get around when you're not editing.
+        <p style={{ margin: '0 0 8px', fontSize: 12, lineHeight: 1.6, color: 'var(--qs-text-dim)' }}>
+            {tx("The bar at the bottom of the screen. It's how you get around when you're not editing.")}
         </p>
-        <div style={{ fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1.5, color: 'rgba(255,255,255,0.35)', padding: '8px 0 2px' }}>Tools</div>
-        <Row k={<Key><Home size={11} /></Key>} title="Home">
-            Back to the qorpStreamer home page. Your overlay stays saved.
+        <div className="qs-subhead" style={{ padding: '6px 0 2px', marginBottom: 4 }}>{tx('Tools')}</div>
+        <Row k={<Key><Home size={12} /></Key>} title={tx('Home page')}>
+            {tx('Back to the qorpStreamer home page. Your overlay stays saved.')}
         </Row>
-        <Row k={<Key><Pencil size={11} /></Key>} title="Edit layout">
-            Opens the editor: add, move and resize things on the canvas. See the <B>Edit mode</B> tab.
+        <Row k={<Key><Pencil size={12} /></Key>} title={tx('Edit layout')}>
+            {tx('Opens the editor: add, move and resize things on the canvas.')}
         </Row>
-        <Row k={<Key accent><Play size={11} /> Go live</Key>} title="Get your OBS link">
-            Creates your private room and copies the OBS link. After that it says <B>Copy link</B> so you can grab it again.
+        <Row k={<Key accent><Play size={12} /> {tx('Publish')}</Key>} title={tx('Get your OBS link')}>
+            {tx('Creates your project link or publishes your draft changes to OBS.')}
         </Row>
-        <Row k={<Key><HelpCircle size={11} /></Key>} title="This guide">
-            Open it any time from the dock or the editor's top bar.
+        <Row k={<Key><HelpCircle size={12} /></Key>} title={tx('This guide')}>
+            {tx("Open it any time from the editor's top bar, or visit the full Help Center.")}
         </Row>
-        <Row k={<><Key><ChevronUp size={11} style={{ transform: 'rotate(180deg)' }} /></Key><Key><GripHorizontal size={11} /></Key></>} title="Hide / show the dock">
-            Tucks the dock into a small handle for a clean preview. Click the handle to bring it back. OBS never shows the dock.
+        <Row k={<><Key><ChevronUp size={12} style={{ transform: 'rotate(180deg)' }} /></Key><Key><GripHorizontal size={12} /></Key></>} title={tx('Hide / show the dock')}>
+            {tx('Tucks the dock into a small handle for a clean preview. Click the handle to bring it back. OBS never shows the dock.')}
         </Row>
-        <div style={{ fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1.5, color: 'rgba(255,255,255,0.35)', padding: '14px 0 2px' }}>Your show (after the divider)</div>
-        <Row k={<Key><LayoutGrid size={11} /></Key>} title="Layouts & templates">
-            A layout is a whole show with its own scenes. Open one of yours, or pick from <B>Templates</B>: click to preview, then <B>Use template</B>.
+        <div className="qs-subhead" style={{ padding: '12px 0 2px', marginBottom: 4 }}>{tx('Your show (after the divider)')}</div>
+        <Row k={<Key><LayoutGrid size={12} /></Key>} title={tx('Layouts & templates')}>
+            {tx('A layout is a whole show with its own scenes. Open one of yours, or pick a starter kit from the gallery.')}
         </Row>
-        <Row k={<Key><Film size={11} /> Scene <ChevronUp size={10} style={{ opacity: 0.6 }} /></Key>} title="Switch scene">
-            The scene you're on. Click it to jump between this layout's scenes (Starting soon, Just chatting, BRB, Ending…). OBS switches with you.
+        <Row k={<Key><Film size={12} /> {tx('Scenes')} <ChevronUp size={11} style={{ opacity: 0.6 }} /></Key>} title={tx('Switch scene')}>
+            {tx("The scene you're on. Click it to jump between this layout's scenes (Starting soon, Just chatting, BRB, Ending…).")}
         </Row>
     </>
 );
 
 const Edit = () => (
     <>
-        <p style={{ margin: '0 0 6px', fontSize: 11.5, lineHeight: 1.6, color: 'rgba(255,255,255,0.55)' }}>
-            Everything you change saves on its own and shows up in OBS within a couple of seconds.
+        <p style={{ margin: '0 0 8px', fontSize: 12, lineHeight: 1.6, color: 'var(--qs-text-dim)' }}>
+            {tx('Everything you change stays in your draft until you publish it to OBS.')}
         </p>
-        <Row k={<Key><Plus size={11} /> Add to scene</Key>} title="The toolbox (left)">
-            Text, lower thirds, clocks, countdowns, goals, socials, pets, a spin wheel, scoreboards, shapes and more. Search at the top, click one, then <B>click or drag on the canvas</B> to place it. <B>Esc</B> cancels.
+        <Row k={<Key><Plus size={12} /> {tx('Add to scene')}</Key>} title={tx('The toolbox (left)')}>
+            {tx('Text, lower thirds, clocks, countdowns, goals, socials, pets, a spin wheel, scoreboards, shapes and more. Search at the top, click one, then click or drag on the canvas to place it. Esc cancels.')}
         </Row>
-        <Row k={<Key>Drag · Resize</Key>} title="Arrange the canvas">
-            Drag anywhere on a box to move it, pull a corner to resize. Click a box to open its settings on the right (text, colors, timer, frame…).
+        <Row k={<Key>{tx('Drag · Resize')}</Key>} title={tx('Arrange the canvas')}>
+            {tx('Drag anywhere on a box to move it, pull a corner to resize. Click a box to open its settings on the right (text, colors, timer, frame…).')}
         </Row>
-        <Row k={<><Key><Eye size={11} /></Key><Key><ChevronUp size={11} /></Key><Key><Trash2 size={11} /></Key></>} title="Layers in this scene (under the canvas)">
-            Every layer, front to back. Click one to select it; hover for hide/show, bring forward or send backward, and remove.
+        <Row k={<><Key><Eye size={12} /></Key><Key><ChevronUp size={12} /></Key><Key><Trash2 size={12} /></Key></>} title={tx('Layers in this scene (under the canvas)')}>
+            {tx('Every layer, front to back. Click one to select it; use the buttons to hide/show, bring forward, send backward, or remove.')}
         </Row>
-        <Row k={<Key><Film size={11} /> Scenes</Key>} title="Pick the scene you're editing">
-            The dropdown at the top of the left panel. Each scene is its own full design.
+        <Row k={<Key><Film size={12} /> {tx('Scenes')}</Key>} title={tx("Pick the scene you're editing")}>
+            {tx('The dropdown at the top of the left panel. Each scene is its own full design.')}
         </Row>
-        <Row k={<Key><Save size={11} /> Save scene</Key>} title="Save as a new scene">
-            Saves the current canvas as a new scene in this layout, for example a BRB version of your main scene.
+        <Row k={<Key><Save size={12} /> {tx('Save scene')}</Key>} title={tx('Save as a new scene')}>
+            {tx('Saves the current canvas as a new scene in this layout, for example a BRB version of your main scene.')}
         </Row>
-        <Row k={<><Key>Theme</Key><Key>BG</Key></>} title="Look & background">
-            <B>Theme</B> re-skins every element at once (colors, font, corners). <B>BG</B> sets the background: solid, gradient, image, or transparent so your game shows through.
+        <Row k={<><Key>{tx('Theme')}</Key><Key>{tx('BG')}</Key></>} title={tx('Look & background')}>
+            {tx('Theme re-skins every element at once (colors, font, corners). BG sets the background: solid, gradient, image, or transparent so your game shows through.')}
         </Row>
-        <Row k={<Key><RotateCcw size={11} /> Reset</Key>} title="Reset positions">
-            Moves the cameras and built-in boxes back to their default spots. Elements you added stay where they are.
+        <Row k={<Key><RotateCcw size={12} /> {tx('Reset')}</Key>} title={tx('Reset positions')}>
+            {tx('Moves the cameras and built-in boxes back to their default spots. Elements you added stay where they are.')}
         </Row>
-        <Row k={<Key accent>Done</Key>} title="Leave the editor">
-            Back to the clean preview with the dock.
+        <Row k={<Key accent>{tx('Done')}</Key>} title={tx('Leave the editor')}>
+            {tx('Back to the clean preview with the dock.')}
         </Row>
     </>
 );
 
 const Obs = () => (
     <>
-        <Step n={1}>In the dock, click <B>Go live</B>. Your private OBS link is copied.</Step>
-        <Step n={2}>In OBS, go to <B>Sources → + → Browser</B> and click OK.</Step>
-        <Step n={3}>Paste the link as the <B>URL</B>, set width <B>1920</B> and height <B>1080</B>, leave Custom CSS empty, and click OK.</Step>
-        <p style={{ margin: '8px 0 0', fontSize: 11, lineHeight: 1.6, color: 'rgba(255,255,255,0.5)' }}>
-            Using <B>Streamlabs Desktop</B>, <B>XSplit</B> or <B>Meld</B>? Add a Browser / Web page source with the same link and size. Stream to YouTube, Twitch, Kick or anywhere your app supports, and the overlay goes along.
+        <Step n={1}>{tx('Publish your project to copy your private OBS link (free preview requires signing in with Google first).')}</Step>
+        <Step n={2}>{tx('In OBS, go to Sources → + → Browser and click OK.')}</Step>
+        <Step n={3}>{tx('Paste the link as the URL, set width 1920 and height 1080, leave Custom CSS empty, and click OK.')}</Step>
+        <p style={{ margin: '10px 0 0', fontSize: 12, lineHeight: 1.6, color: 'var(--qs-text-dim)' }}>
+            {tx('Also works with Streamlabs Desktop, XSplit, or Meld Studio using a Browser / Web page source with the same size.')}
         </p>
-        <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', fontSize: 11, lineHeight: 1.6, color: 'rgba(255,255,255,0.5)' }}>
-            <B>Webcam:</B> add it in OBS as a normal <B>Video Capture Device</B> behind the overlay. To have it snap into the camera frame automatically, turn on <B>Tools → WebSocket Server Settings</B> in OBS (port 4455, authentication off).
-            <br /><B>Keep your link private:</B> anyone who has it can edit your overlay.
+        <div className="qs-hint" style={{ marginTop: 12, padding: '10px 12px', fontSize: 12 }}>
+            <span>{tx('Keep your link private: anyone who has the link can view your published overlay. Never share it; generate a new link in My projects if needed.')}</span>
         </div>
     </>
 );
 
+const About = () => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 6 }}>
+        <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.6, color: 'var(--qs-text)' }}>
+            {tx('qorpStreamer is a fork of Overlay Studio by Abhay Raghuwanshi, distributed under GNU AGPL-3.0.')}
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <a
+                href="https://github.com/Peterson047/overlay-studio"
+                target="_blank"
+                rel="noreferrer"
+                className="qs-btn"
+                style={{ justifyContent: 'space-between', textDecoration: 'none' }}
+            >
+                <span>{tx('qorpStreamer source code (AGPL-3.0)')}</span>
+                <ArrowUpRight size={14} aria-hidden="true" />
+            </a>
+            <a
+                href="https://github.com/abhayraghuwanshi/overlay-studio"
+                target="_blank"
+                rel="noreferrer"
+                className="qs-btn"
+                style={{ justifyContent: 'space-between', textDecoration: 'none' }}
+            >
+                <span>{tx('Original project (Overlay Studio)')}</span>
+                <ArrowUpRight size={14} aria-hidden="true" />
+            </a>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', paddingTop: 4 }}>
+                <a href="/?termos" className="qs-inline-link">{tx('Terms of Use')}</a>
+                <a href="/?privacidade" className="qs-inline-link">{tx('Privacy Policy')}</a>
+            </div>
+        </div>
+    </div>
+);
+
 const TABS = [
-    { id: 'dock', label: 'The dock', Body: Dock },
-    { id: 'edit', label: 'Edit mode', Body: Edit },
-    { id: 'obs', label: 'Add to OBS', Body: Obs },
+    { id: 'dock',  label: 'The dock',   Body: Dock },
+    { id: 'edit',  label: 'Edit mode',  Body: Edit },
+    { id: 'obs',   label: 'Add to OBS', Body: Obs },
+    { id: 'about', label: 'About',      Body: About },
 ];
 
 const HelpPanel = ({ onClose, initialTab = 'dock' }) => {
+    useI18n();
     const [tab, setTab] = useState(initialTab);
     const { Body } = TABS.find(t => t.id === tab) ?? TABS[0];
 
@@ -139,44 +177,43 @@ const HelpPanel = ({ onClose, initialTab = 'dock' }) => {
     return (
         <div
             onClick={onClose}
-            style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+            style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
         >
             <MotionDiv
                 onClick={e => e.stopPropagation()}
                 initial={{ opacity: 0, scale: 0.97, y: 8 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 transition={{ duration: 0.16 }}
-                role="dialog" aria-modal="true" aria-label="How the studio works"
+                role="dialog" aria-modal="true" aria-label={tx('How the studio works')}
+                className="qs-floating-panel"
                 style={{
-                    width: 'min(560px, 100%)', height: 'min(640px, 88vh)', display: 'flex', flexDirection: 'column',
-                    background: 'rgba(12,12,22,0.98)', border: '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: 14, boxShadow: '0 20px 70px rgba(0,0,0,0.7)', overflow: 'hidden', fontFamily: 'inter, system-ui',
+                    width: 'min(580px, 100%)', height: 'min(640px, 88vh)', display: 'flex', flexDirection: 'column',
+                    overflow: 'hidden',
                 }}
             >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px 0' }}>
-                    <span style={{ fontSize: 12, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 2, color: 'rgba(255,255,255,0.75)' }}>How it works</span>
-                    <button onClick={onClose} title="Close" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', display: 'flex', padding: 4 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--qs-text)' }}>{tx('How it works')}</span>
+                    <IconButton size="sm" variant="ghost" title={tx('Close')} onClick={onClose}>
                         <X size={16} />
-                    </button>
+                    </IconButton>
                 </div>
-                <div style={{ display: 'flex', gap: 4, padding: '12px 12px 10px', borderBottom: '1px solid rgba(255,255,255,0.07)', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 6, padding: '12px 16px 10px', borderBottom: '1px solid var(--qs-line)', flexWrap: 'wrap' }}>
                     {TABS.map(t => (
-                        <button key={t.id} onClick={() => setTab(t.id)} style={{
-                            padding: '6px 12px', borderRadius: 7, cursor: 'pointer',
-                            background: tab === t.id ? 'rgba(255,255,255,0.09)' : 'transparent',
-                            border: `1px solid ${tab === t.id ? 'rgba(255,255,255,0.14)' : 'transparent'}`,
-                            color: tab === t.id ? '#fff' : 'rgba(255,255,255,0.45)',
-                            fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1.2,
-                        }}>{t.label}</button>
+                        <SegmentButton key={t.id} active={tab === t.id} onClick={() => setTab(t.id)}>
+                            {tx(t.label)}
+                        </SegmentButton>
                     ))}
                 </div>
-                <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '6px 16px 14px' }}>
+                <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '10px 16px 14px' }}>
                     <Body />
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-                    <button onClick={onClose} style={{ padding: '6px 14px', borderRadius: 7, cursor: 'pointer', background: 'rgba(242,96,56,0.5)', border: '1px solid rgba(255,121,86,0.5)', color: '#fff', fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1 }}>
-                        Got it
-                    </button>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '10px 16px', borderTop: '1px solid var(--qs-line)' }}>
+                    <a href="/?ajuda" className="qs-inline-link qs-inline-link--accent" style={{ textDecoration: 'none' }}>
+                        {tx('Full help center')} <ArrowUpRight size={12} aria-hidden="true" />
+                    </a>
+                    <Button variant="primary" onClick={onClose}>
+                        {tx('Got it')}
+                    </Button>
                 </div>
             </MotionDiv>
         </div>

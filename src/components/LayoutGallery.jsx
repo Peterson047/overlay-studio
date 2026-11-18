@@ -2,11 +2,15 @@ import { motion } from 'framer-motion';
 import { Check, ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { getTheme } from '../theme/themes';
+import { getKitTier } from '../theme/entitlements';
 import { TEMPLATE_CATEGORIES } from '../scenes/starterLayouts';
 import { sceneHoles } from './graphics';
 import { bgToStyle } from './BackgroundPanel';
 import CameraFrame, { DEFAULT_CAM_STYLE } from './CameraFrame';
 import ElementRenderer from './ElementRenderer';
+import { Badge, Button, IconButton, SegmentButton, TextField } from '../ui';
+import { useI18n } from '../i18n';
+import { tx } from '../i18n/studio';
 
 const MotionDiv = motion.div;
 
@@ -50,9 +54,9 @@ const Thumb = ({ snapshot = {}, fallbackTheme }) => {
 
     return (
         <div ref={ref} style={{
-            position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 8, overflow: 'hidden',
-            border: '1px solid rgba(255,255,255,0.08)',
-            background: '#0a0a14', // base so transparent layouts still read
+            position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 'var(--qs-radius)', overflow: 'hidden',
+            border: '1px solid var(--qs-line)',
+            background: 'var(--qs-bg)',
             ...bgToStyle(snapshot.background),
         }}>
             {seen && width > 0 && (
@@ -67,7 +71,7 @@ const Thumb = ({ snapshot = {}, fallbackTheme }) => {
                                 <CameraFrame frame={cs.frame} radius={cs.radius} accent={cs.accent ?? theme.accent} accent2={cs.accent2 ?? theme.accent2}>
                                     {/* stand-in for the webcam OBS shows through the frame */}
                                     <div style={{ width: '100%', height: '100%', background: 'linear-gradient(160deg, rgba(255,255,255,0.10), rgba(255,255,255,0.03))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                        <span style={{ fontFamily: 'monospace', fontSize: 40, letterSpacing: 6, color: 'rgba(255,255,255,0.28)' }}>{CAM_LABELS[id]}</span>
+                                        <span style={{ fontFamily: 'var(--qs-mono)', fontSize: 40, letterSpacing: 6, color: 'rgba(255,255,255,0.28)' }}>{CAM_LABELS[id]}</span>
                                     </div>
                                 </CameraFrame>
                             </div>
@@ -84,7 +88,7 @@ const Thumb = ({ snapshot = {}, fallbackTheme }) => {
                 </div>
             )}
             {cams.length === 0 && shown.length === 0 && (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.2)', fontSize: 9, fontFamily: 'monospace' }}>empty</div>
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--qs-text-faint)', fontSize: 10, fontFamily: 'var(--qs-font)' }}>{tx('Empty')}</div>
             )}
         </div>
     );
@@ -92,16 +96,15 @@ const Thumb = ({ snapshot = {}, fallbackTheme }) => {
 
 const PagerBtn = ({ onClick, title, children }) => (
     <button
+        type="button"
         onClick={onClick}
         title={title}
         style={{
-            width: 17, height: 17, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 18, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
             borderRadius: 4, padding: 0, cursor: 'pointer',
-            background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)',
-            color: 'rgba(255,255,255,0.85)', transition: 'background 0.1s',
+            background: 'rgba(255,255,255,0.14)', border: '1px solid rgba(255,255,255,0.2)',
+            color: 'var(--qs-text)', transition: 'background 0.1s',
         }}
-        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.25)'; }}
-        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; }}
     >
         {children}
     </button>
@@ -124,18 +127,18 @@ const ScenePreview = ({ scenes = [], startIndex = 0, theme, onOpen, openTitle, c
             <div style={{
                 position: 'absolute', left: 0, right: 0, bottom: 0,
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4,
-                padding: '12px 5px 4px',
-                background: 'linear-gradient(transparent, rgba(0,0,0,0.78))',
-                borderRadius: '0 0 8px 8px',
+                padding: '12px 6px 5px',
+                background: 'linear-gradient(transparent, rgba(0,0,0,0.82))',
+                borderRadius: '0 0 var(--qs-radius) var(--qs-radius)',
             }}>
-                <span style={{ fontSize: 8, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 0.5, color: 'rgba(255,255,255,0.8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: 10, fontWeight: 500, fontFamily: 'var(--qs-font)', color: 'var(--qs-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {scene?.name ?? '—'}
                 </span>
                 {n > 1 && (
                     <span style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                        <PagerBtn onClick={() => step(-1)} title="Previous scene"><ChevronLeft size={11} /></PagerBtn>
-                        <span style={{ fontSize: 8, fontFamily: 'monospace', color: 'rgba(255,255,255,0.55)', minWidth: 20, textAlign: 'center' }}>{i + 1}/{n}</span>
-                        <PagerBtn onClick={() => step(1)} title="Next scene"><ChevronRight size={11} /></PagerBtn>
+                        <PagerBtn onClick={() => step(-1)} title={tx('Previous scene')}><ChevronLeft size={11} /></PagerBtn>
+                        <span style={{ fontSize: 9.5, fontFamily: 'var(--qs-mono)', color: 'var(--qs-text-dim)', minWidth: 22, textAlign: 'center' }}>{i + 1}/{n}</span>
+                        <PagerBtn onClick={() => step(1)} title={tx('Next scene')}><ChevronRight size={11} /></PagerBtn>
                     </span>
                 )}
             </div>
@@ -148,16 +151,23 @@ const ScenePreview = ({ scenes = [], startIndex = 0, theme, onOpen, openTitle, c
 // shows the big preview and the Open / Use action.
 const Card = ({ active, selected, onSelect, children }) => {
     const [hover, setHover] = useState(false);
-    const accent = selected ? 'rgba(165,180,252,0.9)' : active ? 'rgba(255,121,86,0.5)' : hover ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.06)';
+    const borderColor = selected
+        ? 'var(--qs-accent-line)'
+        : active
+            ? 'rgba(255, 121, 86, 0.45)'
+            : hover
+                ? 'var(--qs-line-strong)'
+                : 'var(--qs-line)';
     return (
         <div
             onClick={onSelect}
             onMouseEnter={() => setHover(true)}
             onMouseLeave={() => setHover(false)}
             style={{
-                display: 'flex', flexDirection: 'column', gap: 6, padding: 6, borderRadius: 10, cursor: 'pointer',
-                background: selected ? 'rgba(255,121,86,0.14)' : hover ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.025)',
-                border: `1px solid ${accent}`, boxShadow: selected ? '0 0 0 1px rgba(165,180,252,0.35)' : 'none',
+                display: 'flex', flexDirection: 'column', gap: 6, padding: 6, borderRadius: 'var(--qs-radius-lg)', cursor: 'pointer',
+                background: selected ? 'var(--qs-accent-soft)' : hover ? 'var(--qs-raise-hover)' : 'var(--qs-raise)',
+                border: `1px solid ${borderColor}`,
+                boxShadow: selected ? '0 0 0 1px var(--qs-accent-line)' : 'none',
                 transition: 'background 0.12s, border-color 0.12s',
             }}
         >
@@ -167,8 +177,25 @@ const Card = ({ active, selected, onSelect, children }) => {
 };
 
 const ActiveBadge = () => (
-    <span style={{ position: 'absolute', top: 5, right: 5, display: 'flex', alignItems: 'center', gap: 3, background: 'rgba(242,96,56,0.85)', borderRadius: 5, padding: '2px 6px', fontSize: 8, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 0.5, color: '#fff' }}>
-        <Check size={9} /> Active
+    <span style={{
+        position: 'absolute', top: 6, right: 6, display: 'flex', alignItems: 'center', gap: 3,
+        background: 'var(--qs-accent)', borderRadius: 5, padding: '2px 6px',
+        fontSize: 9.5, fontWeight: 700, fontFamily: 'var(--qs-font)', color: '#fff',
+    }}>
+        <Check size={10} /> {tx('Active')}
+    </span>
+);
+
+const ProKitBadge = () => (
+    <span style={{
+        position: 'absolute', top: 6, right: 6,
+        background: 'rgba(13, 14, 13, 0.88)',
+        border: '1px solid var(--qs-accent-line)',
+        color: '#ff9679',
+        borderRadius: 5, padding: '2px 6px',
+        fontSize: 9.5, fontWeight: 700, fontFamily: 'var(--qs-font)', letterSpacing: '0.04em',
+    }}>
+        PRO
     </span>
 );
 
@@ -198,43 +225,37 @@ const LayoutCard = ({ layout, active, selected, onSelect, onRename, onDelete }) 
     const scenes = layout.scenes ?? [];
 
     return (
-        <Card active={active} selected={selected} onSelect={onSelect}>{(hover) => (<>
+        <Card active={active} selected={selected} onSelect={onSelect}>{() => (<>
             <ScenePreview scenes={scenes} startIndex={startSceneOf('mine', layout)}>
                 {active && <ActiveBadge />}
             </ScenePreview>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 22, padding: '0 2px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 24, padding: '0 2px' }} onClick={e => e.stopPropagation()}>
                 {editing ? (
-                    <input
+                    <TextField
                         autoFocus
                         value={name}
-                        onChange={e => setName(e.target.value)}
+                        onChange={setName}
                         onBlur={commitName}
                         onKeyDown={e => { if (e.key === 'Enter') commitName(); if (e.key === 'Escape') { setName(layout.name); setEditing(false); } }}
-                        style={{
-                            flex: 1, minWidth: 0, background: '#15152a', border: '1px solid rgba(255,121,86,0.4)', borderRadius: 5,
-                            color: '#fff', fontSize: 11, padding: '3px 6px', outline: 'none', fontFamily: 'inter, system-ui',
-                        }}
                     />
                 ) : (
                     <span
                         onClick={() => setEditing(true)}
-                        title="Click to rename"
-                        style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'rgba(255,255,255,0.88)', fontWeight: 600, cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                        title={tx('Click to rename')}
+                        style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--qs-text)', fontWeight: 600, fontFamily: 'var(--qs-font)', cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                     >
                         {layout.name}
                     </span>
                 )}
                 {confirmDel ? (
-                    <button onClick={() => onDelete(layout.id)} onMouseLeave={() => setConfirmDel(false)} title="Click to confirm delete"
-                        style={{ flexShrink: 0, padding: '2px 7px', borderRadius: 5, background: 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.5)', color: '#fca5a5', fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', cursor: 'pointer' }}>
-                        Delete?
-                    </button>
+                    <Button variant="danger" size="sm" onClick={() => onDelete(layout.id)} title={tx('Click to confirm delete')}>
+                        {tx('Delete?')}
+                    </Button>
                 ) : (
-                    <button onClick={() => setConfirmDel(true)} title="Delete layout"
-                        style={{ flexShrink: 0, display: 'flex', padding: 3, borderRadius: 5, background: 'none', border: 'none', color: hover ? 'rgba(252,165,165,0.8)' : 'rgba(255,255,255,0.2)', cursor: 'pointer' }}>
+                    <IconButton size="sm" variant="ghost" danger onClick={() => setConfirmDel(true)} title={tx('Delete layout')}>
                         <Trash2 size={12} />
-                    </button>
+                    </IconButton>
                 )}
             </div>
         </>)}</Card>
@@ -243,23 +264,27 @@ const LayoutCard = ({ layout, active, selected, onSelect, onRename, onDelete }) 
 
 // A starter is a ready-made template (not yet a saved layout). Adding it builds
 // a real, editable layout from its scenes.
-const StarterCard = ({ starter, selected, onSelect }) => (
-    <Card selected={selected} onSelect={onSelect}>{() => (<>
-        <ScenePreview scenes={starter.scenes} startIndex={startSceneOf('templates', starter)} theme={starter.themeId}>
-            {starter.isNew && (
-                <span style={{ position: 'absolute', top: 5, left: 5, background: 'rgba(250,204,21,0.92)', color: '#1a1405', borderRadius: 5, padding: '2px 6px', fontSize: 8, fontFamily: 'monospace', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>New</span>
-            )}
-        </ScenePreview>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 1, padding: '0 2px 2px' }}>
-            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.88)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {starter.name}
-            </span>
-            <span title={starter.tagline} style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {starter.tagline}
-            </span>
-        </div>
-    </>)}</Card>
-);
+const StarterCard = ({ starter, selected, onSelect }) => {
+    const isPro = getKitTier(starter) === 'pro';
+    return (
+        <Card selected={selected} onSelect={onSelect}>{() => (<>
+            <ScenePreview scenes={starter.scenes} startIndex={startSceneOf('templates', starter)} theme={starter.themeId}>
+                {starter.isNew && (
+                    <span style={{ position: 'absolute', top: 6, left: 6, background: 'rgba(250,204,21,0.92)', color: '#1a1405', borderRadius: 5, padding: '2px 6px', fontSize: 9, fontFamily: 'var(--qs-font)', fontWeight: 700 }}>{tx('New')}</span>
+                )}
+                {isPro && <ProKitBadge />}
+            </ScenePreview>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 1, padding: '0 2px 2px' }}>
+                <span style={{ fontSize: 12, color: 'var(--qs-text)', fontWeight: 600, fontFamily: 'var(--qs-font)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {starter.name}
+                </span>
+                <span title={starter.tagline} style={{ fontSize: 10.5, color: 'var(--qs-text-dim)', fontFamily: 'var(--qs-font)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {starter.tagline}
+                </span>
+            </div>
+        </>)}</Card>
+    );
+};
 
 // Side panel: big preview of the selected layout/template, its scenes as a
 // 2-column grid to flip the big preview, and the primary action.
@@ -268,43 +293,50 @@ const DetailPanel = ({ kind, item, active, onPrimary }) => {
     const [idx, setIdx] = useState(() => startSceneOf(kind, item));
     const i = Math.min(idx, Math.max(0, scenes.length - 1));
     const theme = kind === 'templates' ? item.themeId : undefined;
+    const isPro = kind === 'templates' && getKitTier(item) === 'pro';
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
             <div style={{ position: 'relative' }}>
                 <Thumb snapshot={scenes[i]?.snapshot} fallbackTheme={theme} />
                 {active && <ActiveBadge />}
+                {isPro && <ProKitBadge />}
             </div>
 
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
                 <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</div>
-                    <div style={{ fontSize: 10, fontFamily: 'monospace', color: 'rgba(255,255,255,0.4)', marginTop: 3 }}>
-                        {scenes.length} {scenes.length === 1 ? 'scene' : 'scenes'}{item.tagline ? ` · ${item.tagline}` : ''}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ fontSize: 15, fontWeight: 700, fontFamily: 'var(--qs-font)', color: 'var(--qs-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</div>
+                        {isPro && <Badge tone="accent">PRO</Badge>}
+                    </div>
+                    <div style={{ fontSize: 11, fontFamily: 'var(--qs-font)', color: 'var(--qs-text-dim)', marginTop: 3 }}>
+                        {scenes.length} {scenes.length === 1 ? tx('scene') : tx('scenes')}{item.tagline ? ` · ${item.tagline}` : ''}
                     </div>
                 </div>
-                <button onClick={onPrimary} style={{
-                    flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, cursor: 'pointer',
-                    background: '#f1f1f5', border: 'none', color: '#0b0b12',
-                    fontSize: 10, fontFamily: 'monospace', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1,
-                }}>
-                    {kind === 'templates' ? <><Plus size={12} /> Use template</> : <><Check size={12} /> {active ? 'Reload' : 'Open'}</>}
-                </button>
+                <Button variant="primary" onClick={onPrimary}>
+                    {kind === 'templates' ? <><Plus size={13} /> {tx('Use template')}</> : <><Check size={13} /> {active ? tx('Reload') : tx('Open')}</>}
+                </Button>
             </div>
 
             {scenes.length > 1 && (
                 <>
-                    <div style={{ fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1.5, color: 'rgba(255,255,255,0.35)' }}>Scenes</div>
+                    <div className="qs-subhead" style={{ marginBottom: 0 }}>{tx('Scenes')}</div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
                         {scenes.map((sc, j) => (
-                            <button key={sc.id ?? j} onClick={() => setIdx(j)} style={{
-                                display: 'flex', flexDirection: 'column', gap: 4, padding: 4, borderRadius: 8, cursor: 'pointer', textAlign: 'left',
-                                background: j === i ? 'rgba(255,121,86,0.16)' : 'rgba(255,255,255,0.03)',
-                                border: `1px solid ${j === i ? 'rgba(165,180,252,0.7)' : 'rgba(255,255,255,0.07)'}`,
-                            }}>
+                            <button
+                                key={sc.id ?? j}
+                                type="button"
+                                onClick={() => setIdx(j)}
+                                style={{
+                                    display: 'flex', flexDirection: 'column', gap: 4, padding: 5, textAlign: 'left',
+                                    borderRadius: 'var(--qs-radius)', cursor: 'pointer',
+                                    background: j === i ? 'var(--qs-accent-soft)' : 'var(--qs-raise)',
+                                    border: `1px solid ${j === i ? 'var(--qs-accent-line)' : 'var(--qs-line)'}`,
+                                }}
+                            >
                                 <Thumb snapshot={sc.snapshot} fallbackTheme={theme} />
-                                <span style={{ fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 0.5, color: j === i ? '#fff' : 'rgba(255,255,255,0.55)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '0 2px' }}>
-                                    {sc.name ?? `Scene ${j + 1}`}
+                                <span style={{ fontSize: 10.5, fontWeight: 500, fontFamily: 'var(--qs-font)', color: j === i ? 'var(--qs-text)' : 'var(--qs-text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '0 2px' }}>
+                                    {sc.name ?? `${tx('Scene')} ${j + 1}`}
                                 </span>
                             </button>
                         ))}
@@ -316,21 +348,16 @@ const DetailPanel = ({ kind, item, active, onPrimary }) => {
 };
 
 const TabBtn = ({ active, onClick, children, count }) => (
-    <button onClick={onClick} style={{
-        display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 7, cursor: 'pointer',
-        background: active ? 'rgba(255,255,255,0.09)' : 'transparent',
-        border: `1px solid ${active ? 'rgba(255,255,255,0.14)' : 'transparent'}`,
-        color: active ? '#fff' : 'rgba(255,255,255,0.45)',
-        fontSize: 11, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1.2,
-    }}>
-        {children}
-        <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 999, background: active ? 'rgba(255,121,86,0.45)' : 'rgba(255,255,255,0.07)', color: active ? '#fff' : 'rgba(255,255,255,0.45)' }}>{count}</span>
-    </button>
+    <SegmentButton active={active} onClick={onClick} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <span>{children}</span>
+        <Badge tone={active ? 'accent' : 'neutral'}>{count}</Badge>
+    </SegmentButton>
 );
 
 const LIST_GRID = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 };
 
 const LayoutGallery = ({ layouts = [], activeLayoutId, starters = [], onAddStarter, onClose, onCreate, onSwitch, onRename, onDelete }) => {
+    useI18n();
     const [newName, setNewName] = useState('');
     const hasStarters = starters.length > 0 && !!onAddStarter;
     // Land on your own layouts once you have some; first-timers see templates.
@@ -377,7 +404,7 @@ const LayoutGallery = ({ layouts = [], activeLayoutId, starters = [], onAddStart
             onClick={onClose}
             style={{
                 position: 'fixed', inset: 0, zIndex: 1000,
-                background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+                background: 'rgba(0,0,0,0.62)', backdropFilter: 'blur(4px)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', padding: narrow ? 10 : 24,
             }}
         >
@@ -386,69 +413,55 @@ const LayoutGallery = ({ layouts = [], activeLayoutId, starters = [], onAddStart
                 initial={{ opacity: 0, scale: 0.97, y: 8 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 transition={{ duration: 0.16 }}
-                role="dialog" aria-modal="true" aria-label="Layouts and templates"
+                role="dialog" aria-modal="true" aria-label={tx('Layouts and templates')}
+                className="qs-floating-panel"
                 style={{
                     width: 'min(1120px, 100%)', height: 'min(760px, 92vh)', display: 'flex', flexDirection: 'column',
-                    background: 'rgba(12,12,22,0.98)', border: '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: 14, boxShadow: '0 20px 70px rgba(0,0,0,0.7)', overflow: 'hidden',
+                    overflow: 'hidden',
                 }}
             >
                 {/* Header — tabs */}
-                <div style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap',
-                    padding: '10px 12px 10px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)',
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <TabBtn active={tab === 'mine'} onClick={() => setTab('mine')} count={layouts.length}>Your layouts</TabBtn>
-                        {hasStarters && <TabBtn active={tab === 'templates'} onClick={() => setTab('templates')} count={starters.length}>Templates</TabBtn>}
+                <div className="qs-floating-head" style={{ flexWrap: 'wrap', gap: 10, padding: '10px 12px 10px 16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <TabBtn active={tab === 'mine'} onClick={() => setTab('mine')} count={layouts.length}>{tx('Your layouts')}</TabBtn>
+                        {hasStarters && <TabBtn active={tab === 'templates'} onClick={() => setTab('templates')} count={starters.length}>{tx('Templates')}</TabBtn>}
                     </div>
-                    <button onClick={onClose} title="Close" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', display: 'flex', padding: 4 }}>
+                    <IconButton size="sm" variant="ghost" onClick={onClose} title={tx('Close')}>
                         <X size={16} />
-                    </button>
+                    </IconButton>
                 </div>
 
                 {tab === 'mine' && (
                     /* New layout — snapshots the current canvas as its first scene */
-                    <div style={{ display: 'flex', gap: 6, padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                        <input
-                            value={newName}
-                            onChange={e => setNewName(e.target.value)}
-                            onKeyDown={e => { if (e.key === 'Enter') create(); }}
-                            placeholder="New layout name (e.g. Valorant Stream)…"
-                            style={{
-                                flex: 1, minWidth: 0, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-                                borderRadius: 7, color: '#fff', fontSize: 12, padding: '7px 10px', outline: 'none', fontFamily: 'inter, system-ui',
-                            }}
-                        />
-                        <button
+                    <div style={{ display: 'flex', gap: 8, padding: '10px 16px', borderBottom: '1px solid var(--qs-line)' }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                            <TextField
+                                value={newName}
+                                onChange={setNewName}
+                                onKeyDown={e => { if (e.key === 'Enter') create(); }}
+                                placeholder={tx('New layout name (e.g. Valorant Stream)…')}
+                            />
+                        </div>
+                        <Button
+                            variant="soft"
                             onClick={create}
-                            title="Create a new layout from the current canvas"
-                            style={{
-                                display: 'flex', alignItems: 'center', gap: 5, padding: '0 14px', borderRadius: 7,
-                                background: 'rgba(242,96,56,0.5)', border: '1px solid rgba(255,121,86,0.5)', color: '#fff',
-                                fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1, cursor: 'pointer', whiteSpace: 'nowrap',
-                            }}
+                            title={tx('Create a new layout from the current canvas')}
                         >
-                            <Plus size={13} /> New layout
-                        </button>
+                            <Plus size={13} /> {tx('New layout')}
+                        </Button>
                     </div>
                 )}
 
                 {tab === 'templates' && (
                     /* Category filter — the template library groups by stream type */
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '10px 16px', borderBottom: '1px solid var(--qs-line)' }}>
                         {[{ id: 'all', label: 'All' }, ...(starters.some(st => st.isNew) ? [{ id: 'new', label: 'New' }] : []), ...TEMPLATE_CATEGORIES].map(cat => {
                             const on = category === cat.id;
                             const n = cat.id === 'all' ? starters.length : cat.id === 'new' ? starters.filter(st => st.isNew).length : starters.filter(st => st.tags?.includes(cat.id)).length;
                             return (
-                                <button key={cat.id} onClick={() => setCategory(cat.id)} style={{
-                                    padding: '4px 10px', borderRadius: 999, cursor: 'pointer',
-                                    background: on ? 'rgba(255,121,86,0.3)' : 'rgba(255,255,255,0.04)',
-                                    border: `1px solid ${on ? 'rgba(165,180,252,0.6)' : 'rgba(255,255,255,0.09)'}`,
-                                    color: on ? '#fff' : 'rgba(255,255,255,0.55)', fontSize: 10, fontFamily: 'monospace', letterSpacing: 0.5,
-                                }}>
-                                    {cat.label} <span style={{ opacity: 0.5 }}>{n}</span>
-                                </button>
+                                <SegmentButton key={cat.id} size="sm" active={on} onClick={() => setCategory(cat.id)}>
+                                    {tx(cat.label)} <span style={{ opacity: 0.6 }}>{n}</span>
+                                </SegmentButton>
                             );
                         })}
                     </div>
@@ -458,10 +471,10 @@ const LayoutGallery = ({ layouts = [], activeLayoutId, starters = [], onAddStart
                 <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: narrow ? 'column' : 'row', overflowY: narrow ? 'auto' : 'hidden' }}>
                     <div style={{ flex: narrow ? 'none' : '1 1 380px', minWidth: 0, maxHeight: narrow ? 'none' : '100%', overflowY: narrow ? 'visible' : 'auto', padding: 14, boxSizing: 'border-box', order: narrow ? 2 : 0 }}>
                         {list.length === 0 ? (
-                            <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.35)', fontSize: 12, fontFamily: 'monospace', lineHeight: 1.8, padding: '60px 20px' }}>
-                                No saved layouts yet.<br />
-                                {hasStarters && <>Pick one from <button onClick={() => setTab('templates')} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#6ee7b7', fontFamily: 'inherit', fontSize: 'inherit', textDecoration: 'underline' }}>Templates</button>, or name</>}
-                                {!hasStarters && 'Name'} one above and hit <span style={{ color: '#ff7956' }}>New layout</span> to capture the current canvas.
+                            <div style={{ textAlign: 'center', color: 'var(--qs-text-dim)', fontSize: 12, fontFamily: 'var(--qs-font)', lineHeight: 1.8, padding: '60px 20px' }}>
+                                {tx('No saved layouts yet.')}<br />
+                                {hasStarters && <>{tx('Pick one from')} <button type="button" onClick={() => setTab('templates')} className="qs-inline-link">{tx('Templates')}</button>, {tx('or name')}</>}
+                                {!hasStarters && tx('Name')} {tx('one above and hit')} <span style={{ color: 'var(--qs-accent-text)', fontWeight: 600 }}>{tx('New layout')}</span> {tx('to capture the current canvas.')}
                             </div>
                         ) : (
                             <div style={LIST_GRID}>
@@ -483,7 +496,7 @@ const LayoutGallery = ({ layouts = [], activeLayoutId, starters = [], onAddStart
                     </div>
 
                     {selected && (
-                        <div style={{ flex: narrow ? 'none' : '1 1 420px', minWidth: 0, maxHeight: narrow ? 'none' : '100%', overflowY: narrow ? 'visible' : 'auto', padding: 16, boxSizing: 'border-box', borderLeft: narrow ? 'none' : '1px solid rgba(255,255,255,0.07)', borderBottom: narrow ? '1px solid rgba(255,255,255,0.07)' : 'none', background: 'rgba(255,255,255,0.015)', order: narrow ? 1 : 0 }}>
+                        <div style={{ flex: narrow ? 'none' : '1 1 420px', minWidth: 0, maxHeight: narrow ? 'none' : '100%', overflowY: narrow ? 'visible' : 'auto', padding: 16, boxSizing: 'border-box', borderLeft: narrow ? 'none' : '1px solid var(--qs-line)', borderBottom: narrow ? '1px solid var(--qs-line)' : 'none', background: 'rgba(255,255,255,0.015)', order: narrow ? 1 : 0 }}>
                             <DetailPanel
                                 key={`${tab}:${selected.id}`}
                                 kind={tab}

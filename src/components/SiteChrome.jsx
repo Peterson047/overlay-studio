@@ -48,6 +48,7 @@ export function SiteHeader({ showTutorial = true }) {
             </a>
             <nav aria-label={t('common.mainNav')}>
                 {showTutorial && <a className="qorp-home-hide-sm" href="/?tutorial">{t('common.tutorial')}</a>}
+                <a className="qorp-home-hide-sm" href="/?ajuda">{t('common.help')}</a>
                 <LanguageSwitch />
                 {signedIn
                     ? <a className="qorp-home-button" href="/?conta">{t('common.myProjects')} <ArrowUpRight size={16} aria-hidden="true" /></a>
@@ -67,6 +68,9 @@ export function SiteFooter() {
             </div>
             <nav aria-label="Links">
                 <a href="/?tutorial">{t('common.tutorial')}</a>
+                <a href="/?ajuda">{t('common.help')}</a>
+                <a href="/?termos">{t('common.terms')}</a>
+                <a href="/?privacidade">{t('common.privacy')}</a>
                 <a href="mailto:contato@qorp.com.br">{t('common.contact')}</a>
                 <a href="https://github.com/abhayraghuwanshi/overlay-studio" target="_blank" rel="noreferrer">{t('common.basedOn')}</a>
                 <a href="https://github.com/Peterson047/overlay-studio" target="_blank" rel="noreferrer">{t('common.sourceCode')}</a>

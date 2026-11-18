@@ -37,3 +37,7 @@
 | 2026-11-17 | OBS WebSocket | Editor só conecta após opt-in; player no OBS sempre tenta | Evita erros de conexão em quem não usa o encaixe da câmera |
 | 2026-11-17 | Login | Usuário: só Google | Sem cadastro por e-mail/senha; primeiro login cria a conta; desativar provedor Email no Supabase |
 | 2026-11-17 | Home | Hero como canal de TV (OSD, estática, sombra sólida) | Fugir do visual genérico de landing |
+| 2026-11-17 | Catálogo Beta (5 grátis / resto Pro) | Usuário: apenas 5 temas/kits base gratuitos (`midnight`, `neon`, `minimal`, `warm`, `aurora`); demais Pro | Preview-first: qualquer visitante pode testar temas/kits Pro em `/?studio`, mas salvar na conta ou publicar no OBS exige Pro ativo |
+| 2026-11-17 | Xaxinim exclusivo | Usuário: kit/tema `Xaxinim` restrito apenas ao proprietário (`QORP_OWNER_EMAILS` / `QORP_OWNER_USER_IDS`) | Ocultado de galerias públicas, seletores e exemplos; bloqueado no servidor com `403 OWNER_ONLY` para não-proprietários |
+| 2026-11-17 | Stripe Sandbox no Beta | Usuário: ativar planos Gratuito e Pro no Beta com Stripe em modo teste (`STRIPE_ALLOW_LIVE=false`); por enquanto exibir apenas o plano Pro mensal (`R$ 24,90/mês`) | Oferta pública simplificada para Pro mensal no cartão; Customer Portal e webhooks idempotentes |
+| 2026-11-17 | Etapa 2 concluída | Migração integral do estúdio para `src/ui/` + `--qs-*` + `tx()`/`studio-pt.js` | Removido índigo herdado, adicionada aba Sobre (AGPL-3.0) no estúdio e corrigido posicionamento do banner de preview no modo edição |

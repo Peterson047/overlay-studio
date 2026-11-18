@@ -1,8 +1,12 @@
 import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { THEMES } from '../theme/themes';
+import { getVisibleThemes, THEMES } from '../theme/themes';
+import { getThemeTier } from '../theme/entitlements';
 import { THEME_PACKS, packGradient } from '../scenes/packs';
-import { BACKDROPS, FRAME_STYLES, LOWER_THIRDS, TEXT_FX } from './graphics';
+import { getVisibleBackdrops, FRAME_STYLES, LOWER_THIRDS, TEXT_FX } from './graphics';
+import { IconButton, SegmentButton, SelectField, Slider } from '../ui';
+import { useI18n } from '../i18n';
+import { tx } from '../i18n/studio';
 
 // ── Font choices ──────────────────────────────────────────────────────────
 const FONTS = [
@@ -53,49 +57,44 @@ const DISPLAY_FONTS = [
     { label: 'Lilita One',   value: "'Lilita One', 'Fredoka', sans-serif" },
 ];
 
-const selectStyle = {
-    width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 5,
-    color: 'rgba(255,255,255,0.75)', fontSize: 10, fontFamily: 'monospace', padding: '4px 6px', outline: 'none', cursor: 'pointer',
-};
-
 const StyleSelect = ({ caption, value, options, onChange }) => (
     <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ width: 64, flexShrink: 0, fontSize: 8.5, color: 'rgba(255,255,255,0.35)', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 0.5 }}>{caption}</span>
-        <select value={value ?? ''} onChange={e => onChange(e.target.value)} style={selectStyle}>
-            {options.map(o => <option key={o.id ?? o.value} value={o.id ?? o.value} style={{ background: '#20231f' }}>{o.label}</option>)}
-        </select>
+        <span style={{ width: 68, flexShrink: 0, fontSize: 10.5, fontWeight: 500, color: 'var(--qs-text-dim)', fontFamily: 'var(--qs-font)' }}>
+            {caption}
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+            <SelectField
+                value={value ?? ''}
+                onChange={onChange}
+                options={options.map(o => ({ value: o.id ?? o.value, label: tx(o.label) }))}
+            />
+        </div>
     </label>
 );
 
 const swatch = (theme) => ({
-    width: 44, height: 30, borderRadius: 5, overflow: 'hidden', flexShrink: 0,
+    width: 44, height: 30, borderRadius: 'var(--qs-radius)', overflow: 'hidden', flexShrink: 0,
     background: `linear-gradient(135deg, ${theme.accent}, ${theme.accent2})`,
     position: 'relative',
+    padding: 0,
 });
-
-const labelStyle = { fontSize: 9, color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 };
 
 const ColorPick = ({ value, onChange, caption }) => (
     <label style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-        <div style={{ width: 30, height: 30, borderRadius: 6, background: value, border: '2px solid rgba(255,255,255,0.15)', overflow: 'hidden' }}>
+        <div style={{ width: 32, height: 32, borderRadius: 'var(--qs-radius)', background: value, border: '1px solid var(--qs-line-strong)', overflow: 'hidden' }}>
             <input type="color" value={value || '#000000'} onChange={e => onChange(e.target.value)}
                 style={{ opacity: 0, width: '100%', height: '100%', cursor: 'pointer', border: 'none', padding: 0 }} />
         </div>
-        <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' }}>{caption}</span>
+        <span style={{ fontSize: 10, color: 'var(--qs-text-dim)', fontFamily: 'var(--qs-font)' }}>{caption}</span>
     </label>
 );
 
-const tabStyle = (active) => ({
-    flex: 1, padding: '5px 4px', textAlign: 'center', fontSize: 10,
-    fontFamily: 'monospace', textTransform: 'capitalize', borderRadius: 5, cursor: 'pointer',
-    background: active ? 'rgba(255,121,86,0.25)' : 'rgba(255,255,255,0.05)',
-    border: active ? '1px solid rgba(255,121,86,0.5)' : '1px solid rgba(255,255,255,0.08)',
-    color: active ? '#ff7956' : 'rgba(255,255,255,0.5)',
-});
-
 // ── Main panel ─────────────────────────────────────────────────────────────
-const ThemePanel = ({ theme, onApply, onChange, onInstallPack, onClose }) => {
-    const t = theme ?? THEMES[0];
+const ThemePanel = ({ theme, onApply, onChange, onInstallPack, onClose, isOwner = false }) => {
+    useI18n();
+    const visibleThemes = getVisibleThemes({ isOwner });
+    const visibleBackdrops = getVisibleBackdrops({ isOwner });
+    const t = theme ?? visibleThemes[0] ?? THEMES[0];
     const set = (changes) => onChange?.(changes);
     const [narrow, setNarrow] = useState(() => (
         typeof window !== 'undefined' && typeof window.matchMedia === 'function'
@@ -111,32 +110,26 @@ const ThemePanel = ({ theme, onApply, onChange, onInstallPack, onClose }) => {
     }, []);
 
     return (
-        <div style={{
-            position: 'absolute',
-            left: narrow ? 12 : 248,
-            top: narrow ? 104 : 60,
-            width: 240,
-            maxWidth: 'calc(100vw - 24px)',
-            maxHeight: narrow ? 'calc(100vh - 116px)' : 'calc(100vh - 72px)',
-            overflowY: 'auto',
-            overflowX: 'hidden',
-            background: 'rgba(9,9,18,0.94)',
-            backdropFilter: 'blur(14px)',
-            border: '1px solid rgba(255,255,255,0.07)',
-            borderRadius: 12,
-            zIndex: 375,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.65)',
-        }}>
+        <div
+            className="qs-floating-panel"
+            style={{
+                position: 'absolute',
+                left: narrow ? 12 : 248,
+                top: narrow ? 104 : 60,
+                width: 248,
+                maxWidth: 'calc(100vw - 24px)',
+                maxHeight: narrow ? 'calc(100vh - 116px)' : 'calc(100vh - 72px)',
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                zIndex: 395,
+            }}
+        >
             {/* Header */}
-            <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '10px 14px 8px',
-                borderBottom: '1px solid rgba(255,255,255,0.06)',
-            }}>
-                <span style={{ fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 2, color: 'rgba(255,255,255,0.5)' }}>
-                    Theme
-                </span>
-                <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', padding: 0, display: 'flex' }}><X size={14} /></button>
+            <div className="qs-floating-head">
+                <span className="qs-floating-title">{tx('Theme')}</span>
+                <IconButton size="sm" variant="ghost" title={tx('Close')} onClick={onClose}>
+                    <X size={14} />
+                </IconButton>
             </div>
 
             <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -144,26 +137,26 @@ const ThemePanel = ({ theme, onApply, onChange, onInstallPack, onClose }) => {
                 {/* ── Theme packs (one-click look + scene) ── */}
                 {onInstallPack && (
                     <div>
-                        <div style={labelStyle}>Library — install a look</div>
+                        <div className="qs-subhead">{tx('Library — install a look')}</div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                             {THEME_PACKS.map(pack => (
                                 <button
                                     key={pack.id}
+                                    type="button"
                                     onClick={() => onInstallPack(pack)}
-                                    title={`Install ${pack.name}`}
+                                    title={tx('Install {name}', { name: pack.name })}
+                                    className="qs-scene-row"
                                     style={{
-                                        display: 'flex', alignItems: 'center', gap: 8,
-                                        padding: '6px 8px', borderRadius: 8, cursor: 'pointer', textAlign: 'left',
-                                        background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-                                        transition: 'all 0.12s',
+                                        width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+                                        padding: '6px 8px', textAlign: 'left', cursor: 'pointer',
+                                        background: 'var(--qs-raise)', border: '1px solid var(--qs-line)',
+                                        borderRadius: 'var(--qs-radius)',
                                     }}
-                                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.borderColor = 'rgba(255,121,86,0.4)'; }}
-                                    onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; }}
                                 >
-                                    <span style={{ width: 28, height: 28, borderRadius: 6, flexShrink: 0, background: packGradient(pack) }} />
+                                    <span style={{ width: 28, height: 28, borderRadius: 'var(--qs-radius)', flexShrink: 0, background: packGradient(pack) }} />
                                     <span style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
-                                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.85)', fontFamily: 'inter, system-ui' }}>{pack.name}</span>
-                                        <span style={{ fontSize: 8.5, color: 'rgba(255,255,255,0.35)', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pack.tagline}</span>
+                                        <span style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--qs-text)', fontFamily: 'var(--qs-font)' }}>{pack.name}</span>
+                                        <span style={{ fontSize: 10, color: 'var(--qs-text-dim)', fontFamily: 'var(--qs-font)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pack.tagline}</span>
                                     </span>
                                 </button>
                             ))}
@@ -173,72 +166,94 @@ const ThemePanel = ({ theme, onApply, onChange, onInstallPack, onClose }) => {
 
                 {/* ── Starter themes ── */}
                 <div>
-                    <div style={labelStyle}>Themes</div>
+                    <div className="qs-subhead">{tx('Themes')}</div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                        {THEMES.map(th => (
-                            <div
-                                key={th.id}
-                                title={th.name}
-                                onClick={() => onApply?.(th.id)}
-                                style={{
-                                    ...swatch(th),
-                                    cursor: 'pointer',
-                                    border: t.id === th.id ? '2px solid #ff7956' : '2px solid rgba(255,255,255,0.08)',
-                                    boxShadow: t.id === th.id ? '0 0 0 1px rgba(255,121,86,0.4)' : 'none',
-                                }}
-                            />
-                        ))}
+                        {visibleThemes.map(th => {
+                            const tier = getThemeTier(th.id);
+                            const isPro = tier === 'pro';
+                            return (
+                                <div
+                                    key={th.id}
+                                    title={th.name}
+                                    onClick={() => onApply?.(th.id)}
+                                    style={{
+                                        ...swatch(th),
+                                        cursor: 'pointer',
+                                        border: t.id === th.id ? '2px solid var(--qs-accent)' : '2px solid var(--qs-line-strong)',
+                                        boxShadow: t.id === th.id ? '0 0 0 1px var(--qs-accent-line)' : 'none',
+                                    }}
+                                >
+                                    {isPro && (
+                                        <span style={{
+                                            position: 'absolute', right: 2, bottom: 2,
+                                            padding: '1px 3px', borderRadius: 3,
+                                            background: 'rgba(13, 14, 13, 0.85)',
+                                            color: '#ff9679',
+                                            fontSize: 7.5, fontWeight: 700, fontFamily: 'var(--qs-font)',
+                                            letterSpacing: '0.04em', lineHeight: 1.1,
+                                            pointerEvents: 'none',
+                                        }}>
+                                            PRO
+                                        </span>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
 
                 {/* ── Colors ── */}
                 <div>
-                    <div style={labelStyle}>Colors</div>
+                    <div className="qs-subhead">{tx('Colors')}</div>
                     <div style={{ display: 'flex', gap: 12 }}>
-                        <ColorPick value={t.accent} onChange={v => set({ accent: v })} caption="ACCENT" />
-                        <ColorPick value={t.accent2} onChange={v => set({ accent2: v })} caption="ACCENT 2" />
-                        <ColorPick value={t.textColor} onChange={v => set({ textColor: v })} caption="TEXT" />
-                        <ColorPick value={t.panelColor} onChange={v => set({ panelColor: v })} caption="PANEL" />
+                        <ColorPick value={t.accent} onChange={v => set({ accent: v })} caption={tx('Accent')} />
+                        <ColorPick value={t.accent2} onChange={v => set({ accent2: v })} caption={tx('Accent 2')} />
+                        <ColorPick value={t.textColor} onChange={v => set({ textColor: v })} caption={tx('Text')} />
+                        <ColorPick value={t.panelColor} onChange={v => set({ panelColor: v })} caption={tx('Panel')} />
                     </div>
                 </div>
 
                 {/* ── Font ── */}
                 <div>
-                    <div style={labelStyle}>Font</div>
+                    <div className="qs-subhead">{tx('Font')}</div>
                     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                         {FONTS.map(f => (
-                            <button key={f.label} onClick={() => set({ fontFamily: f.value })} style={{ ...tabStyle(t.fontFamily === f.value), flex: '1 0 44%', fontFamily: f.value }}>
+                            <SegmentButton
+                                key={f.label}
+                                size="sm"
+                                active={t.fontFamily === f.value}
+                                onClick={() => set({ fontFamily: f.value })}
+                                style={{ flex: '1 0 44%', fontFamily: f.value }}
+                            >
                                 {f.label}
-                            </button>
+                            </SegmentButton>
                         ))}
                     </div>
                 </div>
 
                 {/* ── Corner radius ── */}
                 <div>
-                    <div style={labelStyle}>Corner radius</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <input
-                            type="range" min={0} max={24} step={1}
-                            value={t.cornerRadius ?? 8}
-                            onChange={e => set({ cornerRadius: Number(e.target.value) })}
-                            style={{ flex: 1, accentColor: '#6366f1', cursor: 'pointer' }}
-                        />
-                        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', fontFamily: 'monospace', minWidth: 32, textAlign: 'right' }}>
-                            {t.cornerRadius ?? 8}px
-                        </span>
-                    </div>
+                    <div className="qs-subhead">{tx('Corner radius')}</div>
+                    <Slider
+                        value={t.cornerRadius ?? 8}
+                        min={0}
+                        max={24}
+                        step={1}
+                        unit="px"
+                        aria-label={tx('Corner radius')}
+                        onChange={v => set({ cornerRadius: v })}
+                    />
                 </div>
 
                 {/* ── Style kit: the graphics token-authored elements pick up ── */}
                 <div>
-                    <div style={labelStyle}>Graphics</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                        <StyleSelect caption="Cam frame" value={t.frameStyle} options={FRAME_STYLES} onChange={v => set({ frameStyle: v })} />
-                        <StyleSelect caption="Backdrop" value={t.backdrop ?? 'bokeh'} options={BACKDROPS} onChange={v => set({ backdrop: v })} />
-                        <StyleSelect caption="Headline" value={t.textFx ?? 'plain'} options={TEXT_FX} onChange={v => set({ textFx: v })} />
-                        <StyleSelect caption="Lower 3rd" value={t.lowerThird ?? 'panel'} options={LOWER_THIRDS} onChange={v => set({ lowerThird: v })} />
-                        <StyleSelect caption="Head font" value={t.displayFont ?? ''} options={DISPLAY_FONTS} onChange={v => set({ displayFont: v || undefined })} />
+                    <div className="qs-subhead">{tx('Graphics')}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <StyleSelect caption={tx('Cam frame')} value={t.frameStyle} options={FRAME_STYLES} onChange={v => set({ frameStyle: v })} />
+                        <StyleSelect caption={tx('Backdrop')} value={t.backdrop ?? 'bokeh'} options={visibleBackdrops} onChange={v => set({ backdrop: v })} />
+                        <StyleSelect caption={tx('Headline')} value={t.textFx ?? 'plain'} options={TEXT_FX} onChange={v => set({ textFx: v })} />
+                        <StyleSelect caption={tx('Lower 3rd')} value={t.lowerThird ?? 'panel'} options={LOWER_THIRDS} onChange={v => set({ lowerThird: v })} />
+                        <StyleSelect caption={tx('Head font')} value={t.displayFont ?? ''} options={DISPLAY_FONTS} onChange={v => set({ displayFont: v || undefined })} />
                     </div>
                 </div>
             </div>

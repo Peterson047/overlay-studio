@@ -1,4 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react';
+import { useI18n } from '../i18n';
+import { tx } from '../i18n/studio';
 
 const MIN_W_PCT = 4;
 const MIN_H_PCT = 3;
@@ -39,6 +41,7 @@ const DraggableBox = ({
     const elRef   = useRef(null);
     const boxRef  = useRef(box);
     useEffect(() => { boxRef.current = box; }, [box]);
+    useI18n();
 
     // Tracks whether the current press turned into a drag/resize.
     // onClick fires after pointerup — if didDrag is true, it's not a plain click so skip selection.
@@ -189,9 +192,9 @@ const DraggableBox = ({
     // Quiet at rest (a faint dashed guide), clearer on hover, crisp when selected.
     const outline = editMode
         ? selected
-            ? '1.5px solid #a5b4fc'
+            ? '1.5px solid var(--qs-accent-text, #ff5a6c)'
             : hovered
-                ? '1px solid rgba(165,180,252,0.55)'
+                ? '1px solid var(--qs-accent-line, rgba(255, 64, 86, 0.55))'
                 : '1px dashed rgba(255,255,255,0.12)'
         : 'none';
     const showChrome = editMode && (hovered || selected);
@@ -231,20 +234,20 @@ const DraggableBox = ({
                         position: 'absolute', left: 0, zIndex: 33,
                         ...(tagInside ? { top: 4, left: 4 } : { bottom: 'calc(100% + 5px)' }),
                         display: 'flex', alignItems: 'center', gap: 4,
-                        padding: selected ? '2px 3px 2px 8px' : '2px 8px', borderRadius: 6,
-                        background: selected ? '#4f46e5' : 'rgba(17,17,30,0.92)',
-                        border: `1px solid ${selected ? 'rgba(165,180,252,0.6)' : 'rgba(255,255,255,0.1)'}`,
-                        boxShadow: '0 4px 14px rgba(0,0,0,0.4)',
+                        padding: selected ? '2px 3px 2px 8px' : '2px 8px', borderRadius: 'var(--qs-radius-sm, 6px)',
+                        background: selected ? 'var(--qs-accent, #e2021b)' : 'var(--qs-panel, #141513)',
+                        border: `1px solid ${selected ? 'var(--qs-accent-line, rgba(255, 64, 86, 0.55))' : 'var(--qs-line-strong, rgba(255,255,255,0.16))'}`,
+                        boxShadow: '0 4px 14px rgba(0,0,0,0.45)',
                         whiteSpace: 'nowrap', userSelect: 'none', pointerEvents: selected ? 'auto' : 'none',
                     }}
                 >
-                    <span style={{ fontSize: 10, fontWeight: 500, fontFamily: 'inter, system-ui, sans-serif', color: selected ? '#fff' : 'rgba(255,255,255,0.75)', lineHeight: '16px' }}>
-                        {title}
+                    <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'var(--qs-font, Inter, system-ui, sans-serif)', color: selected ? '#fff' : 'var(--qs-text-dim, #b4b6ad)', lineHeight: '16px' }}>
+                        {tx(title)}
                     </span>
                     {selected && (
                         <span style={{ display: 'flex', gap: 2 }}>
-                            <LayerBtn onClick={(e) => { e.stopPropagation(); onLayerUp?.(id); }} title="Bring forward">▲</LayerBtn>
-                            <LayerBtn onClick={(e) => { e.stopPropagation(); onLayerDown?.(id); }} title="Send backward">▼</LayerBtn>
+                            <LayerBtn onClick={(e) => { e.stopPropagation(); onLayerUp?.(id); }} title={tx('Bring forward')}>▲</LayerBtn>
+                            <LayerBtn onClick={(e) => { e.stopPropagation(); onLayerDown?.(id); }} title={tx('Send backward')}>▼</LayerBtn>
                         </span>
                     )}
                 </div>
@@ -265,7 +268,7 @@ const DraggableBox = ({
                     pointerEvents: 'none',
                     zIndex: 31,
                 }}>
-                    {title}
+                    {tx(title)}
                 </div>
             )}
 
@@ -287,7 +290,7 @@ const DraggableBox = ({
                     >
                         {selected && (
                             <span style={{
-                                display: 'block', background: '#fff', border: '1.5px solid #6366f1',
+                                display: 'block', background: '#fff', border: '1.5px solid var(--qs-accent, #e2021b)',
                                 boxShadow: '0 1px 4px rgba(0,0,0,0.5)', boxSizing: 'border-box',
                                 ...(corner
                                     ? { width: 9, height: 9, borderRadius: 2 }
@@ -303,18 +306,11 @@ const DraggableBox = ({
 
 const LayerBtn = ({ onClick, title, children }) => (
     <button
+        type="button"
         onClick={onClick}
         title={title}
-        style={{
-            background:   'rgba(255,255,255,0.16)',
-            border:       'none',
-            borderRadius: 4,
-            color:        '#fff',
-            fontSize:     9,
-            lineHeight:   1,
-            padding:      '2px 4px',
-            cursor:       'pointer',
-        }}
+        aria-label={title}
+        className="qs-layerbtn"
     >
         {children}
     </button>
@@ -326,6 +322,7 @@ export default memo(DraggableBox, (prev, next) => {
     const pb = prev.box, nb = next.box;
     return (
         pb.x === nb.x && pb.y === nb.y && pb.w === nb.w && pb.h === nb.h &&
+        prev.title          === next.title          &&
         prev.zIndex         === next.zIndex         &&
         prev.selected       === next.selected       &&
         prev.editMode       === next.editMode       &&

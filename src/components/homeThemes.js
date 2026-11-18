@@ -1,7 +1,5 @@
-// Themes shown on the public home page. Vice Beach is only a visual sample
-// (its kit is private to one creator), so it has no `kit` to open.
+// Themes shown on the public home page.
 export const HERO_THEMES = [
-    { id: 'vice', name: 'Vice Beach', accent: '#f59ac0', image: lang => `/screens/vice-starting-${lang}.jpg` },
     { id: 'outrun', name: 'Outrun', accent: '#ff3fa4', kit: 'kit-outrun', image: () => '/screens/themes/outrun.jpg' },
     { id: 'night-city', name: 'Night City', accent: '#f5e000', kit: 'kit-night-city', image: () => '/screens/themes/night-city.jpg' },
     { id: 'lofi-cafe', name: 'Lo-fi Café', accent: '#e8a86a', kit: 'kit-lofi-cafe', image: () => '/screens/themes/lofi-cafe.jpg' },

@@ -1,5 +1,8 @@
 import { expect, test, openEditor, readLayout, uniqueRoom } from './fixtures.js'
 
+// These tests check editor behaviour, so they pin the English UI labels.
+test.use({ locale: 'en-US' })
+
 async function placeText(page, content) {
     await page.getByTitle('Add Text', { exact: true }).click()
     const canvas = page.locator('[data-canvas-stage]')
@@ -69,14 +72,20 @@ test('duplicate, layer ordering, visibility and deletion persist independently',
     await expect(page.locator('[data-box-id]').filter({ hasText: 'Cópia' })).toHaveCount(0)
 })
 
-test('Xaxinim installs as an editable kit and every scene can be selected', async ({ page, request }) => {
-    const room = uniqueRoom('kit')
+test('starter kit installs as an editable kit, every scene can be selected, and owner-only Xaxinim is blocked', async ({ page, request }) => {
+    const blockedRoom = uniqueRoom('kit-blocked')
     await page.addInitScript(() => localStorage.setItem('help_seen', '1'))
-    await page.goto(`/?studio&room=${room}&kit=kit-xaxinim`)
-    await expect.poll(async () => (await readLayout(request, room)).layouts?.[0]?.name).toBe('Xaxinim · Vice Beach')
+    await page.goto(`/?studio&room=${blockedRoom}&kit=kit-xaxinim`)
+    await page.getByRole('button', { name: 'Edit layout', exact: true }).click()
+    const blockedLayout = await readLayout(request, blockedRoom)
+    expect(blockedLayout.layouts ?? []).toHaveLength(0)
+
+    const room = uniqueRoom('kit')
+    await page.goto(`/?studio&room=${room}&kit=midnight-pro`)
+    await expect.poll(async () => (await readLayout(request, room)).layouts?.[0]?.name).toBe('Midnight Pro')
     await page.getByRole('button', { name: 'Edit layout', exact: true }).click()
     const installed = (await readLayout(request, room)).layouts[0]
-    expect(installed.scenes.length).toBe(9)
+    expect(installed.scenes.length).toBe(4)
     let active = installed.scenes[0]
     for (const scene of installed.scenes.slice(1)) {
         await page.getByRole('button', { name: active.name, exact: true }).click()

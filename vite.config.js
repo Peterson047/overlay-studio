@@ -318,7 +318,7 @@ function localUsageApi() {
 // .env.local via loadEnv and never reach the browser bundle.
 function localServerlessApi(env, routes) {
   for (const [k, v] of Object.entries(env)) {
-    if (/^(SUPABASE_|VITE_SUPABASE_|STRIPE_)/.test(k) && process.env[k] === undefined) process.env[k] = v
+    if (/^(SUPABASE_|VITE_SUPABASE_|STRIPE_|QORP_|SITE_URL$)/.test(k) && process.env[k] === undefined) process.env[k] = v
   }
   return {
     name: 'local-serverless-api',
@@ -326,13 +326,18 @@ function localServerlessApi(env, routes) {
       for (const route of routes) {
         server.middlewares.use(`/api/${route}`, async (req, res) => {
           const url = new URL(req.originalUrl || req.url || '/', 'http://localhost')
-          let raw = ''
-          for await (const chunk of req) raw += chunk
+          const chunks = []
+          for await (const chunk of req) {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+          }
+          const rawBuf = Buffer.concat(chunks)
           const vreq = {
             method: req.method,
             headers: req.headers,
             query: Object.fromEntries(url.searchParams),
-            body: raw || undefined,
+            body: rawBuf.length
+              ? (route === 'stripe-webhook' ? rawBuf : rawBuf.toString('utf8'))
+              : undefined,
           }
           const vres = {
             status(code) { res.statusCode = code; return this },
@@ -362,7 +367,7 @@ export default defineConfig(({ mode }) => {
       localLayoutApi(),
       localScoresApi(env.FOOTBALL_DATA_TOKEN, env.FOOTBALL_DATA_COMPETITION || 'WC'),
       localUsageApi(),
-      localServerlessApi(env, ['projects', 'project-layout']),
+      localServerlessApi(env, ['projects', 'project-layout', 'billing', 'stripe-webhook']),
     ],
     // Keep the browser target used by the previous build for OBS browser sources.
     build: {

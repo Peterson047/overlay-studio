@@ -1,5 +1,18 @@
-import { bodyOf, check, database, draftVersion, endpoint, hashToken, HttpError, identity, ownedProject, projectId } from '../server/qorp.js';
-import { liveView, mergeDraft, playbackPayload } from '../server/project-layout.js';
+import {
+    assertProjectWritable,
+    bodyOf,
+    check,
+    database,
+    draftVersion,
+    endpoint,
+    getUserEntitlements,
+    hashToken,
+    HttpError,
+    identity,
+    ownedProject,
+    projectId,
+} from '../server/qorp.js';
+import { assertDraftAllowed, liveView, mergeDraft, playbackPayload } from '../server/project-layout.js';
 
 export default endpoint(async (req, res) => {
     const db = database();
@@ -23,8 +36,11 @@ export default endpoint(async (req, res) => {
     }
     if (req.method !== 'POST') throw new HttpError(405, 'Método não permitido.');
     const body = bodyOf(req);
+    const entitlements = await getUserEntitlements(db, user);
+    await assertProjectWritable(db, user.id, project, entitlements);
     if (body._baseVersion !== draftVersion(project)) return res.status(409).json({ error: 'O rascunho mudou em outra aba. Suas alterações locais foram preservadas.', _v: draftVersion(project) });
     const draft = mergeDraft(project.draft, body);
+    assertDraftAllowed(draft, entitlements);
     const rows = check(await db.from('qorp_projects').update({ draft, revision: project.revision + 1, updated_at: new Date().toISOString() })
         .eq('id', id).eq('owner_id', user.id).eq('revision', project.revision).is('deleted_at', null).select('revision'));
     if (!rows.length) throw new HttpError(409, 'O rascunho mudou em outra aba.');

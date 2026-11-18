@@ -32,9 +32,13 @@ import CameraFrame, { DEFAULT_CAM_STYLE } from './CameraFrame';
 import LayoutGallery from './LayoutGallery';
 import { frameHoleGeometry, holeMask, sceneHoles } from './graphics';
 import { DEFAULT_THEME, getTheme } from '../theme/themes';
+import { inspectLayoutRequirements } from '../theme/entitlements';
 import { MOODS } from '../theme/moods';
 import { packSnapshot } from '../scenes/packs';
-import { STARTER_LAYOUTS, buildStarterLayout } from '../scenes/starterLayouts';
+import { buildStarterLayout, getStarterLayout, getVisibleStarters } from '../scenes/starterLayouts';
+import { Badge } from '../ui';
+import { useI18n } from '../i18n';
+import { tx } from '../i18n/studio';
 
 const MotionDiv = motion.div;
 
@@ -138,7 +142,7 @@ function renderFramedCam(slot, label, showLabel, camStyles, theme, veiled = fals
                         style={{
                             position: 'absolute',
                             inset: 0,
-                            background: '#070712',
+                            background: 'var(--qs-bg, #0d0e0d)',
                             opacity: veiled ? 1 : 0,
                             transition: veiled ? 'none' : 'opacity 160ms ease-out',
                             pointerEvents: 'none',
@@ -363,6 +367,7 @@ const useIsNarrow = (bp = 760) => {
 };
 
 const OverlayLayout = () => {
+    useI18n();
     const { isRecording, isConnected, placeCameras } = useOBS();
     const canvasRef = useRef(null);
 
@@ -478,6 +483,36 @@ const OverlayLayout = () => {
     const [exitStage, setExitStage] = useState(null);
     const [camVeil, setCamVeil] = useState(NO_CAM_VEIL);
     const [syncError, setSyncError] = useState(null);
+    const [proGateNotice, setProGateNotice] = useState(null);
+    const [entitlements, setEntitlements] = useState(null);
+    const entitlementsRef = useRef(null);
+    entitlementsRef.current = entitlements;
+    const [entitlementsReady, setEntitlementsReady] = useState(() => CLEAN_MODE || !isProjectMode());
+
+    useEffect(() => {
+        if (CLEAN_MODE) return undefined;
+        let cancelled = false;
+        const loadEntitlements = async () => {
+            try {
+                if (isProjectMode()) {
+                    const data = await apiFetch('/api/billing');
+                    if (!cancelled) setEntitlements(data);
+                } else if (supabase) {
+                    const { data: sessionData } = await supabase.auth.getSession();
+                    if (sessionData?.session) {
+                        const data = await apiFetch('/api/billing');
+                        if (!cancelled) setEntitlements(data);
+                    }
+                }
+            } catch {
+                // Unauthenticated or billing unavailable in local preview; default to free non-owner.
+            } finally {
+                if (!cancelled) setEntitlementsReady(true);
+            }
+        };
+        loadEntitlements();
+        return () => { cancelled = true; };
+    }, []);
     const currentMoodRef = useRef('chill');
     const transitionDoneTimerRef = useRef(null);
     const dipMidTimerRef = useRef(null);
@@ -498,17 +533,20 @@ const OverlayLayout = () => {
             const data = await res.json().catch(() => null);
             if (!res.ok) {
                 if (res.status === 413) {
-                    setSyncError('Layout too large to save (max 2 MB) — try a smaller image.');
+                    setSyncError(tx('Layout too large to save (max 2 MB) — try a smaller image.'));
                 } else if (res.status === 409) {
                     if (data?._v) lastVerRef.current = data._v;
-                    setSyncError('Layout updated elsewhere — synced latest version.');
+                    setSyncError(tx('Layout updated elsewhere — synced latest version.'));
                     forcePollRef.current?.();
+                } else if (res.status === 403 && (data?.code === 'PRO_REQUIRED' || data?.code === 'PROJECT_READ_ONLY')) {
+                    setProGateNotice(data?.error || tx('This layout requires the Pro plan to save or publish.'));
                 } else {
                     setSyncError(data?.error || `Failed to save layout (HTTP ${res.status})`);
                 }
                 return false;
             }
             setSyncError(null);
+            setProGateNotice(null);
             if (data?._v) lastVerRef.current = data._v;
             if (typeof data?.serverNow === 'number') {
                 const offset = data.serverNow - Date.now();
@@ -760,7 +798,7 @@ const OverlayLayout = () => {
     // applyTheme replaces the whole theme (picking a starter); updateTheme
     // patches individual tokens (editing accent / radius / font in the panel).
     const applyTheme = useCallback((nextTheme) => {
-        const resolved = getTheme(nextTheme);
+        const resolved = getTheme(nextTheme, { includeOwner: !!entitlementsRef.current?.isOwner });
         themeRef.current = resolved;
         setLayoutSettings(s => ({ ...s, theme: resolved }));
         placeCameras(boxesRef.current, visRef.current, elementsRef.current, { theme: resolved });
@@ -802,7 +840,7 @@ const OverlayLayout = () => {
         const nBg    = snapshot.background ?? { type: 'solid', color: '#0a0a0f' };
         const nZ     = snapshot.zOrder ?? Object.keys(DEFAULT_BOXES);
         // A scene may carry a theme (theme packs do); otherwise keep the current one.
-        const nTheme = snapshot.theme ? getTheme(snapshot.theme) : undefined;
+        const nTheme = snapshot.theme ? getTheme(snapshot.theme, { includeOwner: !!entitlementsRef.current?.isOwner }) : undefined;
         // Saved layouts (not scenes) additionally carry camera frames.
         const extra = {};
         if (snapshot.camStyles !== undefined) extra.camStyles = snapshot.camStyles;
@@ -874,7 +912,12 @@ const OverlayLayout = () => {
                     track('preview_saved', {});
                     window.location.href = `/?project=${project.id}`;
                 } catch (err) {
-                    setSyncError(`${err.message} Abra Meus projetos em /?conta.`);
+                    if (err?.code === 'PRO_REQUIRED' || err?.code === 'PROJECT_LIMIT') {
+                        stashImport(draft);
+                        setProGateNotice(err.message);
+                    } else {
+                        setSyncError(`${err.message} Abra Meus projetos em /?conta.`);
+                    }
                 }
                 return;
             }
@@ -902,7 +945,11 @@ const OverlayLayout = () => {
                 toast = { room: result.name, obs, copied, published: true, fresh: !!obs };
                 track('project_published', {});
             } catch (err) {
-                setSyncError(err.message);
+                if (err?.code === 'PRO_REQUIRED' || err?.code === 'PROJECT_READ_ONLY') {
+                    setProGateNotice(err.message);
+                } else {
+                    setSyncError(err.message);
+                }
                 return;
             }
             if (!overlayMountedRef.current) return;
@@ -1513,7 +1560,7 @@ const OverlayLayout = () => {
 
             const { boxes: _b, live: _live, serverNow: _sn, _liveOnly: _lo, zOrder: _z, ...rest } = data;
             void _b; void _live; void _sn; void _lo; void _z;
-            const nextTheme = data.theme ? getTheme(data.theme) : themeRef.current;
+            const nextTheme = data.theme ? getTheme(data.theme, { includeOwner: !!entitlementsRef.current?.isOwner }) : themeRef.current;
             if (data.theme) themeRef.current = nextTheme;
             setLayoutSettings(s => ({
                 ...s,
@@ -1669,16 +1716,16 @@ const OverlayLayout = () => {
     // doesn't add it again.
     const kitHandled = useRef(false);
     useEffect(() => {
-        if (!libReady || kitHandled.current || CLEAN_MODE) return;
+        if (!libReady || !entitlementsReady || kitHandled.current || CLEAN_MODE) return;
         kitHandled.current = true;
         const url = new URL(window.location.href);
         const kitId = url.searchParams.get('kit');
         if (!kitId) return;
-        const starter = STARTER_LAYOUTS.find(s => s.id === kitId);
+        const starter = getStarterLayout(kitId, { includeOwner: !!entitlements?.isOwner });
         if (starter) addStarterLayout(starter);
         url.searchParams.delete('kit');
         window.history.replaceState(null, '', url);
-    }, [libReady, addStarterLayout]);
+    }, [libReady, entitlementsReady, entitlements?.isOwner, addStarterLayout]);
 
     // ── Derived state ────────────────────────────────────────────────────────
     const {
@@ -1690,6 +1737,13 @@ const OverlayLayout = () => {
     } = layoutSettings;
     const elements = useMemo(() => layoutSettings.elements ?? [], [layoutSettings.elements]);
     const sceneTransition = useMemo(() => resolveTransition(storedTransition), [storedTransition]);
+    const isOwner = !!entitlements?.isOwner;
+    const isProUser = !!entitlements?.isPro || isOwner;
+    const visibleStarters = useMemo(() => getVisibleStarters({ isOwner }), [isOwner]);
+    const layoutReqs = useMemo(
+        () => inspectLayoutRequirements({ theme, elements, background, layouts }),
+        [theme, elements, background, layouts],
+    );
 
     const selectedElement = elements.find(el => el.id === selectedElementId) ?? null;
     const selectedCamera = CAMERA_IDS.includes(selectedBox) ? selectedBox : null;
@@ -1747,6 +1801,26 @@ const OverlayLayout = () => {
     // In live mode the canvas is position:absolute filling the viewport.
     // canvasRef always points to the same DOM node so transitions & ResizeObserver stay intact.
     const inEditor = editMode && !isRecording;
+    // Notices (free preview, Pro) sit in a lane over the canvas: in edit mode
+    // between the side panels and below the header, so they never cover the
+    // panels' own controls.
+    const noticeLane = {
+        position: 'absolute', zIndex: 390, pointerEvents: 'none', display: 'flex', justifyContent: 'center',
+        top: inEditor ? editorHeaderHeight + 10 : 12,
+        left: inEditor && !isNarrow ? 240 + 12 : 12,
+        right: inEditor && !isNarrow ? (rightPanelOpen ? RIGHT_PANEL_W : 0) + 12 : 12,
+    };
+    const noticeBox = {
+        pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'center',
+        maxWidth: '100%', padding: '6px 6px 6px 12px', boxSizing: 'border-box',
+        background: 'rgba(20, 21, 19, 0.94)', backdropFilter: 'blur(8px)', border: '1px solid var(--qs-line-strong)',
+        borderRadius: 'var(--qs-radius-lg)', color: 'var(--qs-text)', fontFamily: 'var(--qs-font)', fontSize: 12.5,
+        boxShadow: '0 8px 30px rgba(0,0,0,0.5)',
+    };
+    const noticeAction = {
+        font: 'inherit', fontWeight: 650, height: 28, padding: '0 12px', border: 0, borderRadius: 'var(--qs-radius)',
+        background: 'var(--qs-accent)', color: '#fff', cursor: 'pointer',
+    };
     const editorCheckerBg = {
         backgroundImage: 'linear-gradient(45deg,#1a1a1a 25%,transparent 25%),linear-gradient(-45deg,#1a1a1a 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#1a1a1a 75%),linear-gradient(-45deg,transparent 75%,#1a1a1a 75%)',
         backgroundSize: '20px 20px',
@@ -1756,10 +1830,10 @@ const OverlayLayout = () => {
     const canvasBg = (!background || background.type === 'transparent')
         ? (inEditor ? editorCheckerBg : {})
         : bgToStyle(background);
-    const editorWorkspaceBg = { background: '#070712' };
+    const editorWorkspaceBg = { background: 'var(--qs-bg, #0d0e0d)' };
     // Live preview in a normal browser (phone/desktop) — NOT the OBS source.
     const livePreview = !inEditor && !isRecording && !CLEAN_MODE;
-    const livePreviewBg = { background: '#050510' };
+    const livePreviewBg = { background: 'var(--qs-bg, #0d0e0d)' };
 
     // Camera cut-outs: OBS draws cameras *under* this browser source, so the
     // scene background (and any backdrop element) gets transparent holes where
@@ -1782,7 +1856,7 @@ const OverlayLayout = () => {
     return (
         <div style={{
             width: '100vw', height: '100dvh', overflow: 'hidden', position: 'relative',
-            ...(inEditor ? { background: '#0a0a12' } : livePreview ? livePreviewBg : { background: 'transparent' }),
+            ...(inEditor ? { background: 'var(--qs-bg, #0d0e0d)' } : livePreview ? livePreviewBg : { background: 'transparent' }),
         }}>
             {/* OBS recording flash */}
             {isRecording && (
@@ -1799,7 +1873,7 @@ const OverlayLayout = () => {
                 {/* Header bar */}
                 <div style={{
                     position: 'absolute', top: 0, left: 0, right: 0, height: editorHeaderHeight, zIndex: 400,
-                    background: 'rgba(8,8,18,0.98)', borderBottom: '1px solid rgba(255,255,255,0.07)',
+                    background: 'var(--qs-panel)', borderBottom: '1px solid var(--qs-line)',
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     padding: '4px 10px', flexWrap: isNarrow ? 'wrap' : 'nowrap',
                 }}>
@@ -1807,32 +1881,38 @@ const OverlayLayout = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         {isNarrow && (
                             <button
+                                type="button"
                                 onClick={() => setDrawerOpen(o => !o)}
-                                title="Layers & sources"
+                                title={tx('Layers & sources')}
                                 style={{
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-                                    minHeight: 44, padding: '0 12px', flexShrink: 0, cursor: 'pointer',
-                                    borderRadius: 6, border: '1px solid rgba(255,121,86,0.4)',
-                                    background: drawerOpen ? 'rgba(242,96,56,0.4)' : 'rgba(255,121,86,0.16)',
-                                    color: '#f7d5c9', fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                                    minHeight: 40, padding: '0 12px', flexShrink: 0, cursor: 'pointer',
+                                    borderRadius: 'var(--qs-radius)', border: '1px solid var(--qs-accent-line)',
+                                    background: drawerOpen ? 'var(--qs-accent)' : 'var(--qs-accent-soft)',
+                                    color: drawerOpen ? '#fff' : '#ffd8cc', fontSize: 11.5, fontWeight: 600, fontFamily: 'var(--qs-font)',
                                 }}
                             >
-                                <Layers size={13} />Layers
+                                <Layers size={13} />{tx('Layers')}
                             </button>
                         )}
-                        <a href="/" title="Home" style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}>
+                        <a href="/" title={tx('Home page')} style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}>
                             <img src="/brand/qorp-logo-light.svg" alt="" width="22" height="22" style={{ flexShrink: 0 }} />
                             {!isNarrow && (
-                                <span style={{ fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 3, color: 'rgba(255,255,255,0.45)' }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--qs-font)', letterSpacing: '0.02em', color: 'var(--qs-text-dim)' }}>
                                     qorpStreamer
                                 </span>
                             )}
                         </a>
+                        {isProjectMode() && !isNarrow && (
+                            <a href="/?conta" className="qs-inline-link" style={{ fontSize: 11.5 }}>
+                                {tx('My projects')}
+                            </a>
+                        )}
                     </div>
                     {/* Right: actions */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: isNarrow ? '100%' : undefined, justifyContent: isNarrow ? 'flex-end' : undefined }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, width: isNarrow ? '100%' : undefined, justifyContent: isNarrow ? 'flex-end' : undefined }}>
                         {namingScene ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: isNarrow ? 1 : undefined }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: isNarrow ? 1 : undefined }}>
                                 <input
                                     autoFocus
                                     value={sceneNameDraft}
@@ -1841,32 +1921,38 @@ const OverlayLayout = () => {
                                         if (e.key === 'Enter') { saveScene(sceneNameDraft); setNamingScene(false); }
                                         if (e.key === 'Escape') setNamingScene(false);
                                     }}
-                                    placeholder={`Scene ${(activeLayout?.scenes.length ?? 0) + 1}`}
+                                    placeholder={`${tx('Scene')} ${(activeLayout?.scenes.length ?? 0) + 1}`}
                                     style={{
-                                        width: isNarrow ? 110 : 160, flex: isNarrow ? 1 : undefined, height: 42, minWidth: 0, padding: '0 8px', borderRadius: 5,
-                                        border: '1px solid rgba(255,121,86,0.45)', background: 'rgba(255,121,86,0.12)',
-                                        color: '#e0e7ff', fontSize: 10, fontFamily: 'monospace', outline: 'none',
+                                        width: isNarrow ? 110 : 168, flex: isNarrow ? 1 : undefined, height: 36, minWidth: 0, padding: '0 9px', borderRadius: 'var(--qs-radius)',
+                                        border: '1px solid var(--qs-accent-line)', background: 'var(--qs-input)',
+                                        color: 'var(--qs-text)', fontSize: 12, fontFamily: 'var(--qs-font)', outline: 'none',
                                     }}
                                 />
-                                <HdrBtn active title="Save scene" onClick={() => { saveScene(sceneNameDraft); setNamingScene(false); }}>
-                                    <Check size={12} style={{ marginRight: 4 }} />{!isNarrow && 'Save'}
+                                <HdrBtn active title={tx('Save scene')} onClick={() => { saveScene(sceneNameDraft); setNamingScene(false); }}>
+                                    <Check size={12} style={{ marginRight: isNarrow ? 0 : 4 }} />{!isNarrow && tx('Save')}
                                 </HdrBtn>
-                                <HdrBtn icon title="Cancel" onClick={() => setNamingScene(false)}><X size={12} /></HdrBtn>
+                                <HdrBtn icon title={tx('Cancel')} onClick={() => setNamingScene(false)}><X size={12} /></HdrBtn>
                             </div>
                         ) : (
-                            <HdrBtn onClick={() => { setSceneNameDraft(''); setNamingScene(true); }}><Save size={12} style={{ marginRight: 4 }} />Save Scene</HdrBtn>
+                            <HdrBtn onClick={() => { setSceneNameDraft(''); setNamingScene(true); }}><Save size={12} style={{ marginRight: 4 }} />{tx('Save scene')}</HdrBtn>
                         )}
                         {!(isNarrow && namingScene) && (
                             <>
-                                <HdrBtn title="Reset" icon={isNarrow} onClick={resetLayout}><RotateCcw size={12} style={{ marginRight: 4 }} />{!isNarrow && 'Reset'}</HdrBtn>
-                                <HdrBtn icon title="Help" onClick={() => openHelp('edit', 'edit_header')}><HelpCircle size={12} /></HdrBtn>
+                                <HdrBtn title={tx('Reset')} icon={isNarrow} onClick={resetLayout}><RotateCcw size={12} style={{ marginRight: isNarrow ? 0 : 4 }} />{!isNarrow && tx('Reset')}</HdrBtn>
+                                <HdrBtn icon title={tx('Help')} onClick={() => openHelp('edit', 'edit_header')}><HelpCircle size={12} /></HdrBtn>
                                 <HdrSep />
                             </>
                         )}
                         <button
+                            type="button"
                             onClick={() => { setEditMode(false); setSelectedBox(null); setSelectedElementId(null); setShowBgPanel(false); setShowThemePanel(false); setNamingScene(false); }}
-                            style={{ minHeight: 44, padding: '0 10px', borderRadius: 5, fontSize: 9, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1, border: '1px solid rgba(255,121,86,0.45)', background: 'rgba(242,96,56,0.4)', color: '#fff', cursor: 'pointer' }}
-                        ><Check size={11} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />Done</button>
+                            style={{
+                                minHeight: 36, padding: '0 12px', borderRadius: 'var(--qs-radius)',
+                                fontSize: 12, fontWeight: 600, fontFamily: 'var(--qs-font)',
+                                border: '1px solid var(--qs-accent)', background: 'var(--qs-accent)',
+                                color: '#fff', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
+                            }}
+                        ><Check size={12} />{tx('Done')}</button>
                     </div>
                 </div>
 
@@ -1881,7 +1967,7 @@ const OverlayLayout = () => {
                 {/* Left panel: layers + sources — fixed sidebar on desktop, slide-in drawer on phones */}
                 <div style={{
                     position: 'absolute', top: editorHeaderHeight, left: 0, bottom: 0, zIndex: isNarrow ? 360 : 300,
-                    background: 'rgba(7,7,16,0.98)', borderRight: '1px solid rgba(255,255,255,0.07)',
+                    background: 'var(--qs-panel)', borderRight: '1px solid var(--qs-line)',
                     overflow: 'hidden', display: 'flex', flexDirection: 'column',
                     ...(isNarrow ? {
                         width: 'min(280px, 85vw)',
@@ -1916,27 +2002,28 @@ const OverlayLayout = () => {
                 {rightPanelOpen && (
                     <div style={{
                         position: 'absolute', zIndex: isNarrow ? 360 : 300,
-                        background: 'rgba(7,7,16,0.98)', overflow: 'auto',
+                        background: 'var(--qs-panel)', overflow: 'auto',
                         ...(isNarrow ? {
                             left: 0, right: 0, bottom: 0, top: 'auto', maxHeight: '58vh',
-                            borderTop: '1px solid rgba(255,121,86,0.3)',
+                            borderTop: '1px solid var(--qs-accent-line)',
                             borderTopLeftRadius: 14, borderTopRightRadius: 14,
                             boxShadow: '0 -8px 40px rgba(0,0,0,0.6)',
                         } : {
                             top: editorHeaderHeight, right: 0, bottom: 0, width: RIGHT_PANEL_W,
-                            borderLeft: '1px solid rgba(255,255,255,0.07)',
+                            borderLeft: '1px solid var(--qs-line)',
                         }),
                     }}>
                         {isNarrow && (
                             <div style={{
                                 position: 'sticky', top: 0, zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                padding: '8px 12px', background: 'rgba(7,7,16,0.98)', borderBottom: '1px solid rgba(255,255,255,0.06)',
+                                padding: '8px 12px', background: 'var(--qs-panel)', borderBottom: '1px solid var(--qs-line)',
                             }}>
-                                <div style={{ width: 36, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.18)', margin: '0 auto' }} />
+                                <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--qs-line-strong)', margin: '0 auto' }} />
                                 <button
+                                    type="button"
                                     onClick={() => { setSelectedElementId(null); setSelectedBox(null); }}
-                                    title="Close"
-                                    style={{ position: 'absolute', right: 8, top: 6, padding: 4, background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer' }}
+                                    title={tx('Close')}
+                                    style={{ position: 'absolute', right: 8, top: 6, padding: 4, background: 'transparent', border: 'none', color: 'var(--qs-text-dim)', cursor: 'pointer' }}
                                 >
                                     <X size={16} />
                                 </button>
@@ -1978,6 +2065,7 @@ const OverlayLayout = () => {
                 {showThemePanel && (
                     <ThemePanel
                         theme={theme}
+                        isOwner={isOwner}
                         onApply={applyTheme}
                         onChange={updateTheme}
                         onInstallPack={installPack}
@@ -2101,7 +2189,7 @@ const OverlayLayout = () => {
                                                 width: `${h.box.w}%`,
                                                 height: `${h.box.h}%`,
                                                 borderRadius: h.radius || 0,
-                                                background: '#070712',
+                                                background: 'var(--qs-bg, #0d0e0d)',
                                                 zIndex: 1,
                                                 opacity: camVeil.holes ? 1 : 0,
                                                 transition: camVeil.holes ? 'none' : 'opacity 160ms ease-out',
@@ -2153,7 +2241,7 @@ const OverlayLayout = () => {
                                         initial={{ opacity: 0 }}
                                         animate={{ opacity: [0, 1, 1, 0] }}
                                         transition={{ duration: transSec, times: [0, 0.34, 0.66, 1], ease: 'easeInOut' }}
-                                        style={{ position: 'absolute', inset: 0, zIndex: 450, background: '#050510', pointerEvents: 'none' }}
+                                        style={{ position: 'absolute', inset: 0, zIndex: 450, background: 'var(--qs-bg, #0d0e0d)', pointerEvents: 'none' }}
                                     />
                                 )}
 
@@ -2185,15 +2273,15 @@ const OverlayLayout = () => {
                         >
                             <div ref={placePreviewRef} style={{
                                 position: 'absolute', display: 'none', pointerEvents: 'none',
-                                border: '1px dashed rgba(165,180,252,0.9)', background: 'rgba(255,121,86,0.15)', borderRadius: 4,
+                                border: '1px dashed var(--qs-accent)', background: 'var(--qs-accent-soft)', borderRadius: 4,
                             }} />
                             <div style={{
                                 position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', pointerEvents: 'none',
-                                background: 'rgba(10,10,20,0.9)', border: '1px solid rgba(255,121,86,0.4)', borderRadius: 8,
-                                padding: '5px 12px', fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1,
-                                color: '#ff7956', whiteSpace: 'nowrap',
+                                background: 'var(--qs-panel)', border: '1px solid var(--qs-accent-line)', borderRadius: 'var(--qs-radius)',
+                                padding: '6px 12px', fontSize: 11.5, fontWeight: 600, fontFamily: 'var(--qs-font)',
+                                color: 'var(--qs-text)', whiteSpace: 'nowrap', boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
                             }}>
-                                Click or drag to place {placingType} · Esc to cancel
+                                {tx('Click or drag to place {type} · Esc to cancel', { type: tx(elementTitle(placingType)) })}
                             </div>
                         </div>
                     )}
@@ -2228,42 +2316,62 @@ const OverlayLayout = () => {
                 <div style={{ position: 'absolute', bottom: 16, width: 'max-content', maxWidth: 'calc(100% - 16px)', left: '50%', transform: 'translateX(-50%)', zIndex: 200 }}>
                     {dockCollapsed ? (
                         <button
+                            type="button"
                             onClick={() => setDockCollapsed(false)}
-                            title="Show controls"
-                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 56, height: 44, padding: 0, cursor: 'pointer', background: 'rgba(6,6,16,0.7)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 9, color: 'rgba(255,255,255,0.4)', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', transition: 'all 0.15s' }}
-                            onMouseEnter={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.85)'; e.currentTarget.style.background = 'rgba(6,6,16,0.92)'; }}
-                            onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.4)'; e.currentTarget.style.background = 'rgba(6,6,16,0.7)'; }}
+                            title={tx('Show controls')}
+                            style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', width: 56, height: 42, padding: 0, cursor: 'pointer',
+                                background: 'var(--qs-panel)', border: '1px solid var(--qs-line-strong)', borderRadius: 'var(--qs-radius-lg)',
+                                color: 'var(--qs-text-dim)', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', transition: 'all 0.15s',
+                            }}
                         >
                             <GripHorizontal size={14} />
                         </button>
                     ) : (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', justifyContent: 'center', background: 'rgba(6,6,16,0.88)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: isNarrow ? '6px 8px' : '5px 7px', boxShadow: '0 8px 40px rgba(0,0,0,0.72)', whiteSpace: 'nowrap', maxWidth: 'calc(100vw - 24px)' }}>
+                    <div style={{
+                        display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', justifyContent: 'center',
+                        background: 'var(--qs-panel)', border: '1px solid var(--qs-line-strong)', borderRadius: 14,
+                        padding: isNarrow ? '6px 8px' : '5px 8px', boxShadow: '0 8px 40px rgba(0,0,0,0.68)',
+                        whiteSpace: 'nowrap', maxWidth: 'calc(100vw - 24px)',
+                    }}>
                         {/* Tools (icon-only, Go Live keeps its label) ┃ content: layouts + current scene */}
-                        <DockBtn icon onClick={() => { window.location.href = '/'; }} title="Home">
+                        <DockBtn icon onClick={() => { window.location.href = '/'; }} title={tx('Home page')}>
                             <Home size={13} />
                         </DockBtn>
-                        <DockBtn icon onClick={() => setEditMode(true)} title="Edit layout">
+                        <DockBtn icon onClick={() => setEditMode(true)} title={tx('Edit layout')}>
                             <Pencil size={13} />
                         </DockBtn>
-                        <DockBtn onClick={goLive} active={!isDefaultRoom()} title={isPreviewMode() ? 'Entre para salvar na conta e gerar o link do OBS' : isProjectMode() ? 'Publicar o rascunho no OBS link' : isDefaultRoom() ? 'Go Live — create a private room & copy the OBS link' : `Live in room ${getRoom()} — copy the OBS link again`}>
-                            <Play size={12} style={{ marginRight: 4 }} />{isPreviewMode() ? 'Salvar e publicar' : isProjectMode() ? 'Publicar' : isDefaultRoom() ? 'Go Live' : 'Copy Link'}
+                        <DockBtn
+                            onClick={goLive}
+                            active={!isDefaultRoom()}
+                            title={
+                                isPreviewMode()
+                                    ? 'Entre para salvar na conta e gerar o link do OBS'
+                                    : isProjectMode()
+                                        ? tx('Publish draft to your OBS link')
+                                        : isDefaultRoom()
+                                            ? 'Go Live — create a private room & copy the OBS link'
+                                            : `Live in room ${getRoom()} — copy the OBS link again`
+                            }
+                        >
+                            <Play size={12} style={{ marginRight: 4 }} />{isPreviewMode() ? tx('Save & publish') : isProjectMode() ? tx('Publish') : isDefaultRoom() ? 'Go Live' : 'Copy Link'}
                         </DockBtn>
-                        <DockBtn icon onClick={() => openHelp('dock', 'dock')} title="How the studio works">
+                        <DockBtn icon onClick={() => { window.location.href = '/?ajuda'; }} title={tx('How the studio works')}>
                             <HelpCircle size={13} />
                         </DockBtn>
-                        <DockBtn icon onClick={() => setDockCollapsed(true)} title="Hide controls for a clean view">
+                        <DockBtn icon onClick={() => setDockCollapsed(true)} title={tx('Hide controls for a clean view')}>
                             <ChevronUp size={13} style={{ transform: 'rotate(180deg)' }} />
                         </DockBtn>
-                        <div style={{ width: 1, height: 18, margin: '0 4px', background: 'rgba(255,255,255,0.14)', flexShrink: 0 }} />
-                        <DockBtn icon onClick={() => setShowGallery(true)} title={activeLayout ? `Layouts — current: ${activeLayout.name}` : 'Layouts & templates'}>
+                        <div style={{ width: 1, height: 18, margin: '0 4px', background: 'var(--qs-line-strong)', flexShrink: 0 }} />
+                        <DockBtn icon onClick={() => setShowGallery(true)} title={activeLayout ? tx('Layouts — current: {name}', { name: activeLayout.name }) : tx('Layouts & templates')}>
                             <LayoutGrid size={13} />
                         </DockBtn>
                         {/* Scene switcher — change scene without entering edit mode */}
                         {activeLayout && activeLayout.scenes.length > 0 && (
                             <div style={{ position: 'relative' }}>
-                                <DockBtn icon={isNarrow} active={dockScenesOpen} onClick={() => setDockScenesOpen(o => !o)} title="Switch scene">
+                                <DockBtn icon={isNarrow} active={dockScenesOpen} onClick={() => setDockScenesOpen(o => !o)} title={tx('Switch scene')}>
                                     <Film size={12} style={{ marginRight: isNarrow ? 0 : 4 }} />
-                                    {!isNarrow && (activeScene?.name ?? 'Scene')}
+                                    {!isNarrow && (activeScene?.name ?? tx('Scene'))}
                                     <ChevronUp size={11} style={{ marginLeft: isNarrow ? 1 : 4, transform: dockScenesOpen ? 'none' : 'rotate(180deg)', transition: 'transform 0.15s', opacity: 0.6 }} />
                                 </DockBtn>
                                 <AnimatePresence>
@@ -2274,10 +2382,10 @@ const OverlayLayout = () => {
                                             exit={{ opacity: 0, y: 6 }}
                                             transition={{ duration: 0.14 }}
                                             style={{
-                                                position: 'absolute', bottom: 'calc(100% + 8px)', right: 0, minWidth: 168,
-                                                background: 'rgba(6,6,16,0.96)', backdropFilter: 'blur(24px)',
-                                                border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: 5,
-                                                boxShadow: '0 8px 40px rgba(0,0,0,0.72)', display: 'flex', flexDirection: 'column', gap: 1,
+                                                position: 'absolute', bottom: 'calc(100% + 8px)', right: 0, minWidth: 176,
+                                                background: 'var(--qs-panel)',
+                                                border: '1px solid var(--qs-line-strong)', borderRadius: 'var(--qs-radius-lg)', padding: 5,
+                                                boxShadow: '0 8px 40px rgba(0,0,0,0.72)', display: 'flex', flexDirection: 'column', gap: 2,
                                             }}
                                         >
                                             {activeLayout.scenes.map(s => {
@@ -2285,19 +2393,19 @@ const OverlayLayout = () => {
                                                 return (
                                                     <button
                                                         key={s.id}
+                                                        type="button"
                                                         onClick={() => { switchScene(s.id); setDockScenesOpen(false); }}
+                                                        className={`qs-scene-row${isActive ? ' is-active' : ''}`}
                                                         style={{
-                                                            display: 'flex', alignItems: 'center', gap: 7, minHeight: 44, padding: '6px 9px', borderRadius: 6,
-                                                            background: isActive ? 'rgba(255,121,86,0.2)' : 'transparent', border: 'none', cursor: 'pointer',
-                                                            color: 'rgba(255,255,255,0.85)', fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase',
-                                                            letterSpacing: 1, textAlign: 'left', whiteSpace: 'nowrap',
+                                                            display: 'flex', alignItems: 'center', gap: 7, minHeight: 36, padding: '6px 9px',
+                                                            border: 'none', cursor: 'pointer',
+                                                            color: 'var(--qs-text)', fontSize: 12, fontWeight: 500, fontFamily: 'var(--qs-font)',
+                                                            textAlign: 'left', whiteSpace: 'nowrap',
                                                         }}
-                                                        onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
-                                                        onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
                                                     >
-                                                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: isActive ? '#ff7956' : '#64748b', flexShrink: 0 }} />
+                                                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: isActive ? 'var(--qs-accent)' : 'var(--qs-text-faint)', flexShrink: 0 }} />
                                                         <span style={{ flex: 1 }}>{s.name}</span>
-                                                        {isActive && <Check size={11} color="#ff7956" />}
+                                                        {isActive && <Check size={11} color="var(--qs-accent)" />}
                                                     </button>
                                                 );
                                             })}
@@ -2318,15 +2426,15 @@ const OverlayLayout = () => {
                     style={{
                         position: 'absolute', bottom: editMode ? 18 : 70, left: '50%', transform: 'translateX(-50%)', zIndex: 420,
                         display: 'flex', alignItems: 'center', gap: 10, maxWidth: 'min(420px, calc(100vw - 24px))',
-                        background: 'rgba(69,10,10,0.95)', border: '1px solid rgba(248,113,113,0.45)', borderRadius: 10,
-                        padding: '8px 12px', color: '#fecaca', fontFamily: 'monospace', fontSize: 11, boxShadow: '0 8px 32px rgba(0,0,0,0.65)',
+                        background: 'rgba(69,10,10,0.95)', border: '1px solid rgba(248,113,113,0.45)', borderRadius: 'var(--qs-radius-lg)',
+                        padding: '8px 12px', color: '#fecaca', fontFamily: 'var(--qs-font)', fontSize: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.65)',
                     }}
                 >
                     <span style={{ flex: 1, lineHeight: 1.4 }}>{syncError}</span>
                     <button
                         type="button"
                         onClick={() => setSyncError(null)}
-                        aria-label="Dismiss error"
+                        aria-label={tx('Dismiss error')}
                         style={{ background: 'none', border: 'none', color: '#fecaca', cursor: 'pointer', padding: 2, display: 'flex' }}
                     >
                         <X size={13} />
@@ -2336,19 +2444,48 @@ const OverlayLayout = () => {
 
             {/* Free preview notice: nothing is saved outside this browser. */}
             {isPreviewMode() && !CLEAN_MODE && (
-                <div role="status" style={{
-                    position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 390,
-                    display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', justifyContent: 'center',
-                    width: 'max-content', maxWidth: 'calc(100vw - 24px)', padding: '8px 10px 8px 14px',
-                    background: 'rgba(21,23,20,0.94)', border: '1px solid rgba(215,247,123,0.35)', borderRadius: 10,
-                    color: '#f0f0e9', fontFamily: 'Inter, sans-serif', fontSize: 13, boxShadow: '0 8px 30px rgba(0,0,0,0.5)',
-                }}>
-                    <span><strong style={{ color: '#d7f77b' }}>Preview grátis.</strong> Suas alterações ficam só neste navegador.</span>
-                    <button type="button" onClick={goLive} style={{
-                        font: 'inherit', fontWeight: 600, minHeight: 32, padding: '0 12px',
-                        background: '#d7f77b', color: '#151714', border: 0, borderRadius: 6, cursor: 'pointer',
-                    }}>Entrar e salvar</button>
+                <div style={noticeLane}>
+                    <div role="status" style={noticeBox}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--qs-accent)', flexShrink: 0 }} aria-hidden="true" />
+                        <span>
+                            <strong>{tx('Free preview')}</strong>
+                            <span style={{ color: 'var(--qs-text-dim)' }}> · {tx('saved in this browser only')}</span>
+                        </span>
+                        {layoutReqs.requiresPro && !isProUser && (
+                            <span title={tx('Pro theme/kit — free to test here, requires Pro to save/publish.')}><Badge tone="accent">PRO</Badge></span>
+                        )}
+                        <button type="button" onClick={goLive} style={noticeAction}>{tx('Sign in and save')}</button>
+                    </div>
                 </div>
+            )}
+
+            {/* Pro upgrade / read-only notice for authenticated projects */}
+            {!CLEAN_MODE && !isPreviewMode() && (proGateNotice || (isProjectMode() && layoutReqs.requiresPro && !isProUser)) && (
+                <div style={noticeLane}><div role="status" style={noticeBox}>
+                    <Badge tone="accent">PRO</Badge>
+                    <span>
+                        {proGateNotice || tx('Pro theme/kit active — test freely here; activate Pro to save or publish to OBS.')}
+                    </span>
+                    <a
+                        href="/?conta"
+                        style={{
+                            fontWeight: 600, fontSize: 12, padding: '5px 10px', borderRadius: 'var(--qs-radius)',
+                            background: 'var(--qs-accent)', color: '#fff', textDecoration: 'none',
+                        }}
+                    >
+                        {tx('See Pro plans')}
+                    </a>
+                    {proGateNotice && (
+                        <button
+                            type="button"
+                            onClick={() => setProGateNotice(null)}
+                            aria-label={tx('Dismiss notification')}
+                            style={{ background: 'none', border: 'none', color: 'var(--qs-text-dim)', cursor: 'pointer', padding: 2, display: 'flex' }}
+                        >
+                            <X size={13} />
+                        </button>
+                    )}
+                </div></div>
             )}
 
             {/* Go Live confirmation toast — bottom-center, above the dock */}
@@ -2359,29 +2496,34 @@ const OverlayLayout = () => {
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: 12 }}
                         transition={{ duration: 0.18 }}
-                        style={{ position: 'absolute', bottom: 64, left: '50%', transform: 'translateX(-50%)', zIndex: 400, width: 'min(380px, calc(100vw - 24px))', background: 'rgba(6,6,16,0.96)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,121,86,0.35)', borderRadius: 12, padding: '12px 16px', boxShadow: '0 8px 40px rgba(0,0,0,0.72)', color: 'rgba(255,255,255,0.9)', fontFamily: 'monospace' }}
+                        style={{
+                            position: 'absolute', bottom: 64, left: '50%', transform: 'translateX(-50%)', zIndex: 400,
+                            width: 'min(380px, calc(100vw - 24px))', background: 'var(--qs-panel)',
+                            border: '1px solid var(--qs-accent-line)', borderRadius: 'var(--qs-radius-lg)', padding: '12px 16px',
+                            boxShadow: '0 8px 40px rgba(0,0,0,0.72)', color: 'var(--qs-text)', fontFamily: 'var(--qs-font)',
+                        }}
                     >
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: '#ff7956' }}>
-                                <Check size={13} />{liveToast.published ? 'Publicado' : liveToast.fresh ? 'Room created' : 'Live'} · {liveToast.room}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 700, color: '#ff9679' }}>
+                                <Check size={13} />{liveToast.published ? tx('Published') : liveToast.fresh ? tx('Room created') : tx('Live')} · {liveToast.room}
                             </div>
                             <button
                                 type="button"
                                 onClick={() => { clearTimeout(liveToastTimerRef.current); setLiveToast(null); }}
-                                aria-label="Dismiss notification"
-                                style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: 2, display: 'flex' }}
+                                aria-label={tx('Dismiss notification')}
+                                style={{ background: 'none', border: 'none', color: 'var(--qs-text-dim)', cursor: 'pointer', padding: 2, display: 'flex' }}
                             >
                                 <X size={13} />
                             </button>
                         </div>
-                        <div style={{ marginTop: 6, fontSize: 10.5, lineHeight: 1.5, color: 'rgba(255,255,255,0.6)' }}>
+                        <div style={{ marginTop: 6, fontSize: 11.5, lineHeight: 1.5, color: 'var(--qs-text-dim)' }}>
                             {liveToast.published && !liveToast.obs
                                 ? 'O OBS mostra esta versão em poucos segundos. O link do OBS continua o mesmo; para gerar outro, use a página da conta.'
                                 : liveToast.published
                                     ? `${liveToast.copied ? 'Link do OBS copiado.' : 'Copie o link do OBS abaixo.'} Cole no OBS como Fonte de navegador 1920×1080. Ele só aparece agora: guarde-o.`
                                     : `${liveToast.copied ? 'OBS link copied to clipboard.' : 'Copy the OBS link below.'} Paste it into OBS as a Browser Source.`}
                         </div>
-                        {liveToast.obs && <div style={{ marginTop: 8, padding: '6px 8px', borderRadius: 6, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', fontSize: 10, color: 'rgba(255,255,255,0.8)', wordBreak: 'break-all', userSelect: 'all' }}>
+                        {liveToast.obs && <div style={{ marginTop: 8, padding: '6px 8px', borderRadius: 'var(--qs-radius)', background: 'var(--qs-raise)', border: '1px solid var(--qs-line)', fontSize: 11, fontFamily: 'var(--qs-mono)', color: 'var(--qs-text)', wordBreak: 'break-all', userSelect: 'all' }}>
                             {liveToast.obs}
                         </div>}
                     </motion.div>
@@ -2395,7 +2537,7 @@ const OverlayLayout = () => {
                 <LayoutGallery
                     layouts={layouts}
                     activeLayoutId={activeLayoutId}
-                    starters={STARTER_LAYOUTS}
+                    starters={visibleStarters}
                     onAddStarter={(s) => { addStarterLayout(s); setShowGallery(false); }}
                     onClose={() => setShowGallery(false)}
                     onCreate={createLayout}
@@ -2409,29 +2551,44 @@ const OverlayLayout = () => {
 };
 
 const HdrBtn = ({ children, active, icon, title, onClick }) => (
-    <button onClick={onClick} title={title} aria-label={title} style={{ minHeight: 44, minWidth: 44, justifyContent: 'center', padding: icon ? '0 8px' : '0 10px', borderRadius: 6, fontSize: 11, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1, border: '1px solid', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'all 0.1s', ...(active ? { background: 'rgba(255,121,86,0.2)', borderColor: 'rgba(255,121,86,0.4)', color: '#ff7956' } : { background: 'transparent', borderColor: 'rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.38)' }) }}>
+    <button
+        type="button"
+        onClick={onClick}
+        title={title}
+        aria-label={title}
+        style={{
+            minHeight: 36, minWidth: 36, justifyContent: 'center',
+            padding: icon ? '0 8px' : '0 10px', borderRadius: 'var(--qs-radius)',
+            fontSize: 12, fontWeight: 600, fontFamily: 'var(--qs-font)',
+            border: '1px solid', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'all 0.1s',
+            ...(active
+                ? { background: 'var(--qs-accent-soft)', borderColor: 'var(--qs-accent-line)', color: '#ffd8cc' }
+                : { background: 'var(--qs-raise)', borderColor: 'var(--qs-line)', color: 'var(--qs-text-dim)' }
+            ),
+        }}
+    >
         {children}
     </button>
 );
 
-const HdrSep = () => <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.07)', flexShrink: 0 }} />;
+const HdrSep = () => <div style={{ width: 1, height: 18, background: 'var(--qs-line)', flexShrink: 0 }} />;
 
 const DockBtn = ({ children, active, icon, disabled, onClick, title }) => (
     <button
+        type="button"
         onClick={onClick}
         disabled={disabled}
         title={title}
         aria-label={icon ? title : undefined}
         style={{
-            minHeight: 44,
-            minWidth: 44,
+            minHeight: 38,
+            minWidth: 38,
             justifyContent: 'center',
             padding: icon ? '0 10px' : '0 12px',
-            borderRadius: 8,
-            fontSize: 11,
-            fontFamily: 'monospace',
-            textTransform: 'uppercase',
-            letterSpacing: 1,
+            borderRadius: 'var(--qs-radius)',
+            fontSize: 12,
+            fontWeight: 600,
+            fontFamily: 'var(--qs-font)',
             border: '1px solid',
             cursor: disabled ? 'not-allowed' : 'pointer',
             opacity: disabled ? 0.45 : 1,
@@ -2439,8 +2596,8 @@ const DockBtn = ({ children, active, icon, disabled, onClick, title }) => (
             display: 'flex', alignItems: 'center', gap: 4,
             lineHeight: 1,
             ...(active
-                ? { background: 'rgba(242,96,56,0.52)', borderColor: 'rgba(255,121,86,0.5)', color: '#fff' }
-                : { background: 'transparent', borderColor: 'rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.45)' }
+                ? { background: 'var(--qs-accent)', borderColor: 'var(--qs-accent)', color: '#fff' }
+                : { background: 'var(--qs-raise)', borderColor: 'var(--qs-line)', color: 'var(--qs-text-dim)' }
             ),
         }}
     >

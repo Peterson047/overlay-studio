@@ -3,9 +3,10 @@ import { ArrowDown, ArrowRight, ArrowUpRight, Check, CircleCheck, Link2, Sliders
 import { useI18n } from '../i18n';
 import { SiteFooter, SiteHeader } from './SiteChrome';
 import { GALLERY_THEMES, HERO_THEMES } from './homeThemes';
+import { getKitTier } from '../theme/entitlements';
+import { PLATFORMS } from './platformIcons';
 import './LandingPage.css';
 
-const WORKS_WITH = ['OBS Studio', 'Streamlabs Desktop', 'XSplit', 'Meld Studio', 'Twitch', 'YouTube', 'Kick'];
 const ROTATE_MS = 4500;
 const FLOW_ICONS = [SlidersHorizontal, Link2, CircleCheck];
 
@@ -111,10 +112,21 @@ export default function LandingPage() {
                     <ThemeStage lang={lang} t={t} />
                 </section>
 
-                <section className="qh-works" aria-label={t('home.worksWith')}>
-                    <div className="qorp-home-main">
-                        <span className="qorp-home-label">{t('home.worksWith')}</span>
-                        <ul>{WORKS_WITH.map(name => <li key={name}>{name}</li>)}</ul>
+                <section className="qh-ticker" aria-label={t('home.worksWith')}>
+                    <div className="qh-ticker-tag"><span className="qh-ticker-dot" aria-hidden="true" />{t('home.worksWith')}</div>
+                    <div className="qh-ticker-track">
+                        {[0, 1].map(copy => (
+                            <ul key={copy} className="qh-ticker-list" aria-hidden={copy === 1 || undefined}>
+                                {PLATFORMS.map(p => (
+                                    <li key={p.label} style={{ '--brand': p.color }}>
+                                        {p.path && (
+                                            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path d={p.path} fill="currentColor" /></svg>
+                                        )}
+                                        <span>{p.label}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        ))}
                     </div>
                 </section>
 
@@ -152,7 +164,10 @@ export default function LandingPage() {
                                         <img src={`/screens/themes/${theme.id}.jpg`} width="1280" height="720" alt="" loading="lazy" />
                                     </span>
                                     <span className="qh-card-body">
-                                        <span className="qh-card-name">{theme.name}</span>
+                                        <span className="qh-card-head">
+                                            <span className="qh-card-name">{theme.name}</span>
+                                            {getKitTier(theme.kit) === 'pro' && <span className="qh-pro-pill">{t('home.proBadge')}</span>}
+                                        </span>
                                         <span className="qh-card-tag">{t(`home.themeTags.${theme.id}`)}</span>
                                         <span className="qh-card-cta">{t('home.useTheme')} <ArrowRight size={14} aria-hidden="true" /></span>
                                     </span>

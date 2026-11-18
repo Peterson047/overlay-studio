@@ -160,7 +160,8 @@ ${body}
     </main>
     <footer>
       ${esc(SITE.brandLong)} · free, open-source stream overlay editor ·
-      Maintained by Qorp · <a href="/templates/">All templates</a>
+      Maintained by Qorp · <a href="/templates/">All templates</a> ·
+      <a href="/?ajuda">Help</a> · <a href="/?termos">Terms of Use</a> · <a href="/?privacidade">Privacy</a>
     </footer>
   </body>
 </html>

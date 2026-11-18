@@ -1,8 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 import { createHash, randomBytes } from 'node:crypto';
+import { PLAN_LIMITS, resolveBillingEntitlement } from '../src/theme/entitlements.js';
 
 export class HttpError extends Error {
-    constructor(status, message) { super(message); this.status = status; }
+    constructor(status, message, code = null) {
+        super(message);
+        this.status = status;
+        if (code) this.code = code;
+    }
 }
 
 export function database() {
@@ -37,7 +42,7 @@ export function projectId(value) {
 export function check(result) {
     if (!result.error) return result.data;
     const message = result.error.message || '';
-    if (message.includes('PROJECT_LIMIT')) throw new HttpError(403, 'Você atingiu o limite de projetos ativos do seu plano.');
+    if (message.includes('PROJECT_LIMIT')) throw new HttpError(403, 'Você atingiu o limite de projetos ativos do seu plano.', 'PROJECT_LIMIT');
     if (message.includes('NOT_FOUND')) throw new HttpError(404, 'Projeto ou revisão não encontrado.');
     if (message.includes('CONFLICT')) throw new HttpError(409, 'O projeto mudou em outra aba. Recarregue antes de publicar.');
     throw new HttpError(503, 'Não foi possível acessar os dados. Confira a configuração e a migração do banco.');
@@ -58,10 +63,88 @@ export const metadata = row => ({ id: row.id, name: row.name, revision: row.revi
     publishedRevision: row.published_revision, published: !!row.published,
     hasPlaybackToken: !!row.playback_hash, updatedAt: row.updated_at, deletedAt: row.deleted_at });
 
+function parseEnvList(value, { lower = false } = {}) {
+    return new Set(
+        String(value || '')
+            .split(',')
+            .map(entry => (lower ? entry.trim().toLowerCase() : entry.trim()))
+            .filter(Boolean)
+    );
+}
+
+export function isOwnerUser(user) {
+    if (!user || typeof user !== 'object') return false;
+    const ownerIds = parseEnvList(process.env.QORP_OWNER_USER_IDS, { lower: true });
+    const userId = String(user.id || '').trim().toLowerCase();
+    if (userId && ownerIds.has(userId)) return true;
+
+    if (
+        user.email_confirmed_at !== undefined &&
+        (!user.email_confirmed_at || (typeof user.email_confirmed_at === 'string' && !user.email_confirmed_at.trim()))
+    ) {
+        return false;
+    }
+    const ownerEmails = parseEnvList(process.env.QORP_OWNER_EMAILS, { lower: true });
+    const email = String(user.email || '').trim().toLowerCase();
+    return Boolean(email && ownerEmails.has(email));
+}
+
+export async function getUserBilling(db, userId) {
+    return check(
+        await db.from('qorp_billing').select('*').eq('owner_id', userId).maybeSingle()
+    ) || null;
+}
+
+export async function getUserEntitlements(db, user, { now = Date.now() } = {}) {
+    const billingRow = await getUserBilling(db, user.id);
+    const billing = resolveBillingEntitlement(billingRow, now);
+    const isOwner = isOwnerUser(user);
+    const limits = PLAN_LIMITS[billing.plan] || PLAN_LIMITS.free;
+    return {
+        ...billing,
+        isOwner,
+        limits,
+    };
+}
+
+export async function activeProjectRows(db, userId) {
+    return check(
+        await db.from('qorp_projects')
+            .select('id,updated_at')
+            .eq('owner_id', userId)
+            .is('deleted_at', null)
+            .order('updated_at', { ascending: false })
+    ) || [];
+}
+
+export function writableProjectIds(activeRows, maxProjects) {
+    if (!Number.isFinite(maxProjects) || maxProjects < 0) {
+        return new Set((activeRows || []).map(row => row.id));
+    }
+    return new Set((activeRows || []).slice(0, maxProjects).map(row => row.id));
+}
+
+export async function assertProjectWritable(db, userId, project, entitlements) {
+    if (!project || project.deleted_at) return;
+    const activeRows = await activeProjectRows(db, userId);
+    const writable = writableProjectIds(activeRows, entitlements.limits.maxProjects);
+    if (!writable.has(project.id)) {
+        throw new HttpError(
+            403,
+            'Este projeto está somente leitura porque excede o limite de projetos ativos do plano Gratuito.',
+            'PROJECT_READ_ONLY'
+        );
+    }
+}
+
 export function endpoint(handler) {
     return async (req, res) => {
         res.setHeader('Cache-Control', 'no-store');
         try { await handler(req, res); }
-        catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Não foi possível concluir a operação.' }); }
+        catch (error) {
+            const payload = { error: error.status ? error.message : 'Não foi possível concluir a operação.' };
+            if (error.status && error.code) payload.code = error.code;
+            res.status(error.status || 500).json(payload);
+        }
     };
 }

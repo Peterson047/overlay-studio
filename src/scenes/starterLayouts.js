@@ -945,11 +945,6 @@ const GAME_LAYOUTS = [
         }),
     },
     {
-        id: 'kit-xaxinim', name: 'Xaxinim · Vice Beach', themeId: 'xaxinim-vice', tags: ['games', 'gaming'], kit: true, isNew: true,
-        tagline: 'Pôr do sol lavanda, rosa e pêssego · cenas do Xaxinim',
-        scenes: xaxinimScenes(),
-    },
-    {
         id: 'kit-nether', name: 'Nether Run', themeId: 'nether', tags: ['games', 'gaming'], kit: true, isNew: true,
         tagline: 'Minecraft Nether-style · lava sea · falling ash',
         scenes: kitShow({
@@ -1213,6 +1208,23 @@ export const STARTER_LAYOUTS = [
         ],
     },
 ];
+
+const OWNER_STARTER_LAYOUTS = [
+    {
+        id: 'kit-xaxinim', name: 'Xaxinim · Vice Beach', themeId: 'xaxinim-vice', tags: ['games', 'gaming'], kit: true, isNew: true,
+        tagline: 'Pôr do sol lavanda, rosa e pêssego · cenas do Xaxinim',
+        scenes: xaxinimScenes(),
+    },
+];
+
+export const getVisibleStarters = ({ isOwner = false } = {}) => (
+    isOwner ? [...STARTER_LAYOUTS, ...OWNER_STARTER_LAYOUTS] : STARTER_LAYOUTS
+);
+
+export const getStarterLayout = (id, { includeOwner = false } = {}) => {
+    const pool = includeOwner ? [...STARTER_LAYOUTS, ...OWNER_STARTER_LAYOUTS] : STARTER_LAYOUTS;
+    return pool.find(s => s.id === id);
+};
 
 let starterInstanceSeq = 0;
 

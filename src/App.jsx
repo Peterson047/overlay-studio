@@ -6,6 +6,9 @@ const Showcase = lazy(() => import('./components/Showcase'));
 const WidgetLab = lazy(() => import('./components/WidgetLab'));
 const AccountPage = lazy(() => import('./components/AccountPage'));
 const TutorialPage = lazy(() => import('./components/TutorialPage'));
+const HelpPage = lazy(() => import('./components/HelpPage'));
+const LegalPage = lazy(() => import('./components/LegalPage'));
+const UiCatalog = lazy(() => import('./components/UiCatalog'));
 const statusStyle = {
     minHeight: '100dvh', display: 'grid', placeContent: 'center', gap: 16,
     padding: 32, background: '#151714', color: '#f0f0e9',
@@ -48,7 +51,7 @@ function App() {
     return (
         <AppBoundary>
             <Suspense fallback={loading}>
-                {params.has('tutorial') ? <TutorialPage /> : params.has('conta') ? <AccountPage /> : params.has('widgetlab') ? <WidgetLab /> : params.has('showcase') ? <Showcase /> : isStudio ? <Studio /> : <LandingPage />}
+                {params.has('ui') ? <UiCatalog /> : params.has('termos') ? <LegalPage doc="terms" /> : params.has('privacidade') ? <LegalPage doc="privacy" /> : params.has('ajuda') ? <HelpPage /> : params.has('tutorial') ? <TutorialPage /> : params.has('conta') ? <AccountPage /> : params.has('widgetlab') ? <WidgetLab /> : params.has('showcase') ? <Showcase /> : isStudio ? <Studio /> : <LandingPage />}
             </Suspense>
         </AppBoundary>
     );

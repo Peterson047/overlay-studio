@@ -5,65 +5,39 @@
 import { useState } from 'react';
 import { useOBS } from '../context/OBSContext';
 import { CAMERA_FRAMES } from './CameraFrame';
+import { Badge, Button, Field, Hint, Slider, TextField } from '../ui';
+import { useI18n } from '../i18n';
+import { tx } from '../i18n/studio';
 
-const Label = ({ children }) => (
-    <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 4 }}>
-        {children}
-    </span>
-);
-
-const WS_INPUT_STYLE = {
-    width: '100%',
-    boxSizing: 'border-box',
-    padding: '5px 7px',
-    fontSize: 10,
-    fontFamily: 'monospace',
-    color: '#e5e7eb',
-    background: 'rgba(0,0,0,0.35)',
-    border: '1px solid rgba(255,255,255,0.14)',
-    borderRadius: 4,
-    outline: 'none',
-};
-
-const WS_BTN_STYLE = {
-    fontSize: 9,
-    fontFamily: 'monospace',
-    fontWeight: 700,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    padding: '4px 8px',
-    borderRadius: 4,
-    cursor: 'pointer',
-    border: '1px solid rgba(255,255,255,0.18)',
-    background: 'rgba(255,255,255,0.08)',
-    color: '#e5e7eb',
-};
+const Label = ({ children }) => <span className="qs-label">{children}</span>;
 
 const describeObsDisconnect = (connectionError) => {
     switch (connectionError?.kind) {
         case 'auth':
             return {
-                title: 'OBS auth required (4009)',
-                tone: 'error',
-                body: 'OBS WebSocket rejected the connection password. Paste your OBS Server Password below or disable authentication in OBS: Tools → WebSocket Server Settings.',
+                title: tx('OBS auth required (4009)'),
+                tone: 'danger',
+                body: tx('OBS WebSocket rejected the connection password. Paste your OBS Server Password below or disable authentication in OBS: Tools → WebSocket Server Settings.'),
             };
         case 'mixed-content':
             return {
-                title: 'WebSocket blocked (HTTPS)',
-                tone: 'error',
-                body: 'This page is loaded over HTTPS while OBS uses ws://. Open the overlay on http:// (or provide a wss:// URL below).',
+                title: tx('WebSocket blocked (HTTPS)'),
+                tone: 'danger',
+                body: tx('This page is loaded over HTTPS while OBS uses ws://. Open the overlay on http:// (or provide a wss:// URL below).'),
             };
         case 'unreachable':
             return {
-                title: 'OBS WebSocket unreachable',
-                tone: 'warn',
-                body: `Could not reach ${connectionError.url || 'ws://127.0.0.1:4455'}. Confirm OBS Studio is running with Tools → WebSocket Server Settings → Enable WebSocket server on port 4455.`,
+                title: tx('OBS WebSocket unreachable'),
+                tone: 'warning',
+                body: tx('Could not reach {url}. Confirm OBS Studio is running with Tools → WebSocket Server Settings → Enable WebSocket server on port 4455.', {
+                    url: connectionError.url || 'ws://127.0.0.1:4455',
+                }),
             };
         default:
             return {
-                title: 'OBS not connected',
-                tone: 'warn',
-                body: 'Add your webcam as an OBS “Video Capture Device” source behind this overlay. Enable Tools → WebSocket Server Settings → Enable WebSocket server (port 4455).',
+                title: tx('OBS not connected'),
+                tone: 'warning',
+                body: tx('Add your webcam as an OBS “Video Capture Device” source behind this overlay. Enable Tools → WebSocket Server Settings → Enable WebSocket server (port 4455).'),
             };
     }
 };
@@ -105,9 +79,11 @@ const FramePreview = ({ id, accent }) => {
     return <span style={map[id] ?? base} />;
 };
 
-const PRESET_ACCENTS = ['#6366f1', '#22d3ee', '#ec4899', '#f59e0b', '#22c55e', '#ffffff'];
+// Overlay camera-frame preset colors (stream content, not studio chrome).
+const PRESET_ACCENTS = ['#e2021b', '#22d3ee', '#ec4899', '#f59e0b', '#22c55e', '#ffffff'];
 
 const CameraEditor = ({ slot, camStyle = {}, onChangeCamStyle }) => {
+    useI18n();
     const {
         isConnected,
         connectionError,
@@ -122,7 +98,7 @@ const CameraEditor = ({ slot, camStyle = {}, onChangeCamStyle }) => {
     const [wsUrl, setWsUrl] = useState(obsConfig?.url ?? '');
     const [wsPassword, setWsPassword] = useState(obsConfig?.password ?? '');
     const frame = camStyle.frame ?? 'soft';
-    const accent = camStyle.accent ?? '#6366f1';
+    const accent = camStyle.accent ?? '#ff7956';
     const radius = camStyle.radius ?? 14;
     const usesAccent = ['ring', 'neon', 'gradient', 'circle', 'hexagon', 'diamond'].includes(frame);
     const usesRadius = !['none', 'circle', 'hexagon', 'diamond'].includes(frame);
@@ -136,153 +112,129 @@ const CameraEditor = ({ slot, camStyle = {}, onChangeCamStyle }) => {
         setShowWsConfig(false);
     };
 
+    const camLabel = tx(CAMERA_LABELS[slot] ?? slot);
+
     return (
         <div style={{
             width: '100%', boxSizing: 'border-box',
-            background: 'rgba(7,7,16,0.94)',
+            background: 'var(--qs-panel)',
+            fontFamily: 'var(--qs-font)',
             padding: '12px 14px 16px',
-            display: 'flex', flexDirection: 'column', gap: 12,
+            display: 'flex', flexDirection: 'column', gap: 14,
         }}>
             {/* Type badge */}
             <div>
-                <Label>Camera</Label>
-                <div style={{
-                    fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1,
-                    color: '#a5b4fc', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)',
-                    borderRadius: 5, padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: 6,
-                }}>
-                    {CAMERA_LABELS[slot] ?? slot}
-                </div>
+                <Label>{tx('Camera')}</Label>
+                <Badge tone="live">{camLabel}</Badge>
             </div>
 
             {/* OBS source hint — the real webcam is a native OBS source behind this
                 frame. When the OBS WebSocket is connected we auto-place that source
                 into the frame; otherwise show exact failure reason & credentials. */}
             {isConnected ? (
-                <div style={{
-                    fontSize: 9, fontFamily: 'monospace', lineHeight: 1.5, color: 'rgba(134,239,172,0.85)',
-                    background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)',
-                    borderRadius: 6, padding: '7px 9px', display: 'flex', flexDirection: 'column', gap: 5,
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
-                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', flexShrink: 0 }} />
-                            OBS connected
+                <div className="qs-callout qs-callout--success">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--qs-success)', flexShrink: 0 }} />
+                            {tx('OBS connected')}
                         </span>
-                        <div style={{ display: 'flex', gap: 4 }}>
-                            <button type="button" onClick={disableObs} style={WS_BTN_STYLE} title="Parar de conectar ao OBS a partir do estúdio">
-                                Desligar
-                            </button>
-                            <button type="button" onClick={() => placeCameras(undefined, undefined, undefined, { syncPreview: true })} style={{ ...WS_BTN_STYLE, color: '#bbf7d0', borderColor: 'rgba(34,197,94,0.35)' }}>
-                                Sync OBS
-                            </button>
-                            <button
-                                type="button"
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            <Button size="sm" onClick={disableObs} title={tx('Stop connecting to OBS from the studio')}>
+                                {tx('Turn off')}
+                            </Button>
+                            <Button size="sm" variant="soft" onClick={() => placeCameras(undefined, undefined, undefined, { syncPreview: true })}>
+                                {tx('Sync OBS')}
+                            </Button>
+                            <Button
+                                size="sm"
                                 onClick={() => {
                                     setWsUrl(obsConfig?.url ?? '');
                                     setWsPassword(obsConfig?.password ?? '');
                                     setShowWsConfig((v) => !v);
                                 }}
-                                style={WS_BTN_STYLE}
                             >
                                 WS
-                            </button>
+                            </Button>
                         </div>
                     </div>
 
                     {camStatus?.error ? (
-                        <div style={{ color: '#fca5a5' }}>
-                            Auto-place error: {camStatus.error}
+                        <div style={{ color: 'var(--qs-danger)' }}>
+                            {tx('Auto-place error: {error}', { error: camStatus.error })}
                         </div>
                     ) : camStatus && camStatus.matched.length === 0 ? (
-                        <div style={{ color: '#fde047' }}>
-                            No camera source found in OBS scene “{camStatus.sceneName}”. Add a Video Capture Device (or name your source Webcam / Face Cam).
+                        <div style={{ color: 'var(--qs-warning)' }}>
+                            {tx('No camera source found in OBS scene “{scene}”. Add a Video Capture Device (or name your source Webcam / Face Cam).', { scene: camStatus.sceneName })}
                         </div>
                     ) : matchedForSlot ? (
                         <div>
-                            Scene “{camStatus.sceneName}” → <strong style={{ color: '#dcfce7' }}>{matchedForSlot.sourceName}</strong>
-                            {matchedForSlot.inGroup ? ' (group)' : ''}
+                            {tx('Scene “{scene}” → ', { scene: camStatus.sceneName })}<strong style={{ color: 'var(--qs-text)' }}>{matchedForSlot.sourceName}</strong>
+                            {matchedForSlot.inGroup ? tx(' (group)') : ''}
                             {camStatus.studioModeEnabled && (
-                                <div style={{ color: 'rgba(253,224,71,0.8)', marginTop: 3 }}>
-                                    Studio Mode active in OBS: click Transition (or turn off Studio Mode) if Program does not refresh.
+                                <div style={{ color: 'var(--qs-warning)', marginTop: 4 }}>
+                                    {tx('Studio Mode active in OBS: click Transition (or turn off Studio Mode) if Program does not refresh.')}
                                 </div>
                             )}
                         </div>
                     ) : camStatus ? (
-                        <div style={{ color: 'rgba(255,255,255,0.72)' }}>
-                            No OBS camera assigned to {CAMERA_LABELS[slot] ?? slot}. Matched:{' '}
-                            {camStatus.matched.map((m) => `${m.slot}=${m.sourceName}`).join(', ')}.
+                        <div>
+                            {tx('No OBS camera assigned to {cam}. Matched: {list}.', {
+                                cam: camLabel,
+                                list: camStatus.matched.map((m) => `${m.slot}=${m.sourceName}`).join(', '),
+                            })}
                         </div>
                     ) : (
                         <div>
-                            Your OBS camera source snaps into this frame automatically when you move it or switch scenes.
+                            {tx('Your OBS camera source snaps into this frame automatically when you move it or switch scenes.')}
                         </div>
                     )}
                 </div>
             ) : !obsConfig?.enabled ? (
-                <div style={{
-                    fontSize: 9, fontFamily: 'monospace', lineHeight: 1.5, color: 'rgba(255,255,255,0.72)',
-                    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)',
-                    borderRadius: 6, padding: '7px 9px', display: 'flex', flexDirection: 'column', gap: 6,
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                        <span style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
-                            Encaixe automático (opcional)
+                <div className="qs-callout">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 700, color: 'var(--qs-text)' }}>
+                            {tx('Auto-fit (optional)')}
                         </span>
-                        <button type="button" onClick={reconnect} style={WS_BTN_STYLE}>
-                            Conectar ao OBS
-                        </button>
+                        <Button size="sm" variant="soft" onClick={reconnect}>
+                            {tx('Connect to OBS')}
+                        </Button>
                     </div>
                     <div>
-                        Com o OBS aberto e o servidor WebSocket ligado (Ferramentas → Configurações do servidor WebSocket, porta 4455),
-                        a câmera do OBS se encaixa nesta moldura sozinha. Sem isso, posicione a câmera no OBS manualmente.
+                        {tx('With OBS open and the WebSocket server enabled (Tools → WebSocket Server Settings, port 4455), your OBS camera snaps into this frame automatically. Otherwise, position your camera in OBS manually.')}
                     </div>
                 </div>
             ) : (
-                <div style={{
-                    fontSize: 9,
-                    fontFamily: 'monospace',
-                    lineHeight: 1.5,
-                    color: disconnectInfo.tone === 'error' ? 'rgba(252,165,165,0.9)' : 'rgba(253,224,71,0.82)',
-                    background: disconnectInfo.tone === 'error' ? 'rgba(239,68,68,0.08)' : 'rgba(234,179,8,0.07)',
-                    border: `1px solid ${disconnectInfo.tone === 'error' ? 'rgba(239,68,68,0.3)' : 'rgba(234,179,8,0.25)'}`,
-                    borderRadius: 6,
-                    padding: '7px 9px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 6,
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
+                <div className={`qs-callout qs-callout--${disconnectInfo.tone}`}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
                             <span
                                 style={{
                                     width: 6,
                                     height: 6,
                                     borderRadius: '50%',
-                                    background: disconnectInfo.tone === 'error' ? '#ef4444' : '#eab308',
+                                    background: disconnectInfo.tone === 'danger' ? 'var(--qs-danger)' : 'var(--qs-warning)',
                                     flexShrink: 0,
                                 }}
                             />
                             {disconnectInfo.title}
                         </span>
-                        <div style={{ display: 'flex', gap: 4 }}>
-                            <button type="button" onClick={reconnect} style={WS_BTN_STYLE}>
-                                Retry
-                            </button>
-                            <button type="button" onClick={disableObs} style={WS_BTN_STYLE} title="Parar de tentar conectar ao OBS">
-                                Desligar
-                            </button>
-                            <button
-                                type="button"
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            <Button size="sm" onClick={reconnect}>
+                                {tx('Retry')}
+                            </Button>
+                            <Button size="sm" onClick={disableObs} title={tx('Stop trying to connect to OBS')}>
+                                {tx('Turn off')}
+                            </Button>
+                            <Button
+                                size="sm"
                                 onClick={() => {
                                     setWsUrl(obsConfig?.url ?? '');
                                     setWsPassword(obsConfig?.password ?? '');
                                     setShowWsConfig((v) => !v);
                                 }}
-                                style={WS_BTN_STYLE}
                             >
-                                {wsFormOpen ? 'Hide' : 'Setup'}
-                            </button>
+                                {tx(wsFormOpen ? 'Hide' : 'Setup')}
+                            </Button>
                         </div>
                     </div>
                     <div>{disconnectInfo.body}</div>
@@ -295,75 +247,58 @@ const CameraEditor = ({ slot, camStyle = {}, onChangeCamStyle }) => {
                     style={{
                         display: 'flex',
                         flexDirection: 'column',
-                        gap: 6,
-                        padding: '7px 9px',
-                        borderRadius: 6,
-                        background: 'rgba(255,255,255,0.03)',
-                        border: '1px solid rgba(255,255,255,0.1)',
+                        gap: 8,
+                        padding: 10,
+                        borderRadius: 'var(--qs-radius)',
+                        background: 'var(--qs-raised)',
+                        border: '1px solid var(--qs-line)',
                     }}
                 >
-                    <div>
-                        <Label>OBS WebSocket URL (optional)</Label>
-                        <input
-                            type="text"
+                    <Field stack label={tx('OBS WebSocket URL (optional)')}>
+                        <TextField
                             value={wsUrl}
-                            onChange={(e) => setWsUrl(e.target.value)}
+                            onChange={setWsUrl}
                             placeholder="ws://127.0.0.1:4455"
-                            style={WS_INPUT_STYLE}
                         />
-                    </div>
-                    <div>
-                        <Label>OBS Server Password</Label>
-                        <input
+                    </Field>
+                    <Field stack label={tx('OBS Server Password')}>
+                        <TextField
                             type="password"
                             value={wsPassword}
-                            onChange={(e) => setWsPassword(e.target.value)}
-                            placeholder="Leave blank if auth disabled"
-                            style={WS_INPUT_STYLE}
+                            onChange={setWsPassword}
+                            placeholder={tx('Leave blank if auth disabled')}
                         />
-                    </div>
-                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                        <button
-                            type="submit"
-                            style={{
-                                ...WS_BTN_STYLE,
-                                background: 'rgba(99,102,241,0.28)',
-                                borderColor: 'rgba(99,102,241,0.6)',
-                                color: '#e0e7ff',
-                            }}
-                        >
-                            Save & Connect
-                        </button>
+                    </Field>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <Button type="submit" size="sm" variant="primary">
+                            {tx('Save & Connect')}
+                        </Button>
                     </div>
                 </form>
             )}
 
-            <div style={{ height: 1, background: 'rgba(255,255,255,0.08)' }} />
+            <div style={{ height: 1, background: 'var(--qs-line)' }} />
 
             {/* Frame picker */}
             <div>
-                <Label>Frame</Label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 5 }}>
+                <Label>{tx('Frame')}</Label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6 }}>
                     {CAMERA_FRAMES.map(f => {
                         const selected = frame === f.id;
                         return (
                             <button
                                 key={f.id}
+                                type="button"
+                                aria-pressed={selected}
                                 onClick={() => onChangeCamStyle?.({ frame: f.id })}
-                                title={f.label}
-                                style={{
-                                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 5,
-                                    padding: '8px 2px 5px', borderRadius: 7, cursor: 'pointer',
-                                    background: selected ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.04)',
-                                    border: `1px solid ${selected ? 'rgba(99,102,241,0.55)' : 'rgba(255,255,255,0.08)'}`,
-                                    transition: 'all 0.12s', minHeight: 46,
-                                }}
+                                title={tx(f.label)}
+                                className="qs-frame-btn"
                             >
                                 <span style={{ height: 20, display: 'flex', alignItems: 'center' }}>
                                     <FramePreview id={f.id} accent={accent} />
                                 </span>
-                                <span style={{ fontSize: 7.5, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 0.5, color: selected ? '#c7d2fe' : 'rgba(255,255,255,0.4)' }}>
-                                    {f.label}
+                                <span style={{ fontSize: 10, fontWeight: 600, lineHeight: 1.15 }}>
+                                    {tx(f.label)}
                                 </span>
                             </button>
                         );
@@ -374,22 +309,28 @@ const CameraEditor = ({ slot, camStyle = {}, onChangeCamStyle }) => {
             {/* Accent — only for frames that use it */}
             {usesAccent && (
                 <div>
-                    <Label>Accent</Label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                        {PRESET_ACCENTS.map(c => (
-                            <button
-                                key={c}
-                                onClick={() => onChangeCamStyle?.({ accent: c })}
-                                title={c}
-                                style={{
-                                    width: 20, height: 20, borderRadius: '50%', cursor: 'pointer', flexShrink: 0,
-                                    background: c, border: accent.toLowerCase() === c.toLowerCase() ? '2px solid #fff' : '2px solid rgba(255,255,255,0.15)',
-                                    boxShadow: accent.toLowerCase() === c.toLowerCase() ? `0 0 8px ${c}` : 'none',
-                                }}
-                            />
-                        ))}
-                        <label title="Custom color" style={{ width: 20, height: 20, borderRadius: '50%', overflow: 'hidden', cursor: 'pointer', border: '2px solid rgba(255,255,255,0.15)', flexShrink: 0, position: 'relative', background: 'conic-gradient(red,orange,yellow,lime,cyan,blue,magenta,red)' }}>
-                            <input type="color" value={accent} onChange={e => onChangeCamStyle?.({ accent: e.target.value })} style={{ opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }} />
+                    <Label>{tx('Accent')}</Label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                        {PRESET_ACCENTS.map(c => {
+                            const active = accent.toLowerCase() === c.toLowerCase();
+                            return (
+                                <button
+                                    key={c}
+                                    type="button"
+                                    onClick={() => onChangeCamStyle?.({ accent: c })}
+                                    title={c}
+                                    aria-label={c}
+                                    aria-pressed={active}
+                                    style={{
+                                        width: 22, height: 22, borderRadius: '50%', cursor: 'pointer', flexShrink: 0,
+                                        background: c, border: active ? '2px solid #fff' : '2px solid var(--qs-line-strong)',
+                                        boxShadow: active ? `0 0 8px ${c}` : 'none',
+                                    }}
+                                />
+                            );
+                        })}
+                        <label title={tx('Custom color')} style={{ width: 22, height: 22, borderRadius: '50%', overflow: 'hidden', cursor: 'pointer', border: '2px solid var(--qs-line-strong)', flexShrink: 0, position: 'relative', background: 'conic-gradient(red,orange,yellow,lime,cyan,blue,magenta,red)' }}>
+                            <input type="color" aria-label={tx('Custom color')} value={accent} onChange={e => onChangeCamStyle?.({ accent: e.target.value })} style={{ opacity: 0, width: '100%', height: '100%', cursor: 'pointer' }} />
                         </label>
                     </div>
                 </div>
@@ -397,19 +338,22 @@ const CameraEditor = ({ slot, camStyle = {}, onChangeCamStyle }) => {
 
             {/* Corner radius — only for rectangular frames */}
             {usesRadius && (
-                <div>
-                    <Label>Corner radius — {radius}px</Label>
-                    <input
-                        type="range" min={0} max={40} value={radius}
-                        onChange={e => onChangeCamStyle?.({ radius: Number(e.target.value) })}
-                        style={{ width: '100%', accentColor: accent, cursor: 'pointer' }}
+                <Field stack label={tx('Corner radius')}>
+                    <Slider
+                        min={0}
+                        max={40}
+                        step={1}
+                        value={radius}
+                        displayValue={`${radius}px`}
+                        ariaLabel={tx('Corner radius')}
+                        onChange={r => onChangeCamStyle?.({ radius: r })}
                     />
-                </div>
+                </Field>
             )}
 
-            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.25)', fontFamily: 'monospace', lineHeight: 1.5 }}>
-                Position, resize, and z-order this cam from the canvas or the Layers list.
-            </div>
+            <Hint>
+                {tx('Position, resize, and z-order this cam from the canvas or the Layers list.')}
+            </Hint>
         </div>
     );
 };

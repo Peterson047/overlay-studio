@@ -2,6 +2,9 @@
 import { RefreshCw, Upload, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { scaleImageFile } from '../utils/imageScale.js';
+import { Button, ColorField, IconButton, SegmentButton, Slider } from '../ui';
+import { useI18n } from '../i18n';
+import { tx } from '../i18n/studio';
 
 // ── Presets ────────────────────────────────────────────────────────────────
 export const PRESETS = [
@@ -69,19 +72,7 @@ export const bgToStyle = (bg) => {
 };
 
 // ── Small preset tile ───────────────────────────────────────────────────────
-const PresetTile = ({ preset, active, onClick }) => {
-    const tileStyle = {
-        width: 44, height: 30,
-        borderRadius: 5,
-        cursor: 'pointer',
-        border: active ? '2px solid #818cf8' : '2px solid rgba(255,255,255,0.08)',
-        flexShrink: 0,
-        transition: 'border-color 0.12s',
-        position: 'relative',
-        overflow: 'hidden',
-        boxShadow: active ? '0 0 0 1px rgba(99,102,241,0.4)' : 'none',
-    };
-
+const PresetTile = ({ preset, label, active, onClick }) => {
     const innerStyle = preset.type === 'transparent'
         ? {
             width: '100%', height: '100%',
@@ -95,13 +86,16 @@ const PresetTile = ({ preset, active, onClick }) => {
             : { width: '100%', height: '100%', background: `linear-gradient(${preset.dir}, ${preset.from}, ${preset.to})` };
 
     return (
-        <div
-            title={preset.label}
-            style={tileStyle}
+        <button
+            type="button"
+            title={label}
+            aria-label={label}
+            aria-pressed={active}
+            className="qs-tile"
             onClick={onClick}
         >
             <div style={innerStyle} />
-        </div>
+        </button>
     );
 };
 
@@ -114,8 +108,22 @@ const DIRS = [
     { label: '↙', value: '225deg' },
 ];
 
+const BG_TYPES = [
+    { id: 'transparent', label: 'Transparent' },
+    { id: 'solid',       label: 'Solid' },
+    { id: 'gradient',    label: 'Gradient' },
+    { id: 'image',       label: 'Image' },
+];
+
+const FIT_OPTIONS = [
+    { id: 'cover',   label: 'Cover' },
+    { id: 'contain', label: 'Contain' },
+    { id: 'repeat',  label: 'Repeat' },
+];
+
 // ── Main panel ─────────────────────────────────────────────────────────────
 const BackgroundPanel = ({ bg, onChange, onClose }) => {
+    useI18n();
     const fileRef = useRef(null);
     const [narrow, setNarrow] = useState(() => (
         typeof window !== 'undefined' && typeof window.matchMedia === 'function'
@@ -158,57 +166,40 @@ const BackgroundPanel = ({ bg, onChange, onClose }) => {
         }
     };
 
-    const controlStyle = {
-        background: 'rgba(255,255,255,0.06)',
-        border: '1px solid rgba(255,255,255,0.1)',
-        borderRadius: 5,
-        color: '#fff',
-        fontSize: 11,
-        padding: '4px 8px',
-        outline: 'none',
-        cursor: 'pointer',
-        fontFamily: 'inter, system-ui',
-    };
-
     return (
-        <div style={{
-            position: 'absolute',
-            left: narrow ? 12 : 248,
-            top: narrow ? 104 : 60,
-            width: 240,
-            maxWidth: 'calc(100vw - 24px)',
-            maxHeight: narrow ? 'calc(100vh - 116px)' : 'calc(100vh - 72px)',
-            overflowY: 'auto',
-            overflowX: 'hidden',
-            background: 'rgba(9,9,18,0.94)',
-            backdropFilter: 'blur(14px)',
-            border: '1px solid rgba(255,255,255,0.07)',
-            borderRadius: 12,
-            zIndex: 375,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.65)',
-        }}>
+        <div
+            className="qs-floating-panel"
+            style={{
+                position: 'absolute',
+                left: narrow ? 12 : 248,
+                top: narrow ? 104 : 60,
+                width: 248,
+                maxWidth: 'calc(100vw - 24px)',
+                maxHeight: narrow ? 'calc(100vh - 116px)' : 'calc(100vh - 72px)',
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                zIndex: 395,
+            }}
+        >
             {/* Header */}
-            <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '10px 14px 8px',
-                borderBottom: '1px solid rgba(255,255,255,0.06)',
-            }}>
-                <span style={{ fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 2, color: 'rgba(255,255,255,0.5)' }}>
-                    Background
-                </span>
-                <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', padding: 0, display: 'flex' }}><X size={14} /></button>
+            <div className="qs-floating-head">
+                <span className="qs-floating-title">{tx('Background')}</span>
+                <IconButton size="sm" variant="ghost" title={tx('Close')} onClick={onClose}>
+                    <X size={14} />
+                </IconButton>
             </div>
 
             <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 14 }}>
 
                 {/* ── Preset tiles ── */}
                 <div>
-                    <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Presets</div>
+                    <div className="qs-subhead">{tx('Presets')}</div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                         {PRESETS.map((p, i) => (
                             <PresetTile
                                 key={i}
                                 preset={p}
+                                label={tx(p.label)}
                                 active={isPresetActive(p)}
                                 onClick={() => {
                                     if (p.type === 'transparent') onChange({ type: 'transparent' });
@@ -221,44 +212,32 @@ const BackgroundPanel = ({ bg, onChange, onClose }) => {
                 </div>
 
                 {/* ── Type tabs ── */}
-                <div style={{ display: 'flex', gap: 4 }}>
-                    {['transparent', 'solid', 'gradient', 'image'].map(t => (
-                        <button
-                            key={t}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 4 }}>
+                    {BG_TYPES.map(t => (
+                        <SegmentButton
+                            key={t.id}
+                            size="sm"
+                            active={current.type === t.id}
+                            style={{ padding: '0 4px', fontSize: 10.5 }}
                             onClick={() => {
-                                if (t === 'transparent') onChange({ type: 'transparent' });
-                                else if (t === 'solid')  onChange({ type: 'solid', color: current.color ?? '#0a0a0f' });
-                                else if (t === 'gradient') onChange({ type: 'gradient', from: current.from ?? '#0a0a0f', to: current.to ?? '#1a0830', dir: current.dir ?? '135deg' });
+                                if (t.id === 'transparent') onChange({ type: 'transparent' });
+                                else if (t.id === 'solid')  onChange({ type: 'solid', color: current.color ?? '#0a0a0f' });
+                                else if (t.id === 'gradient') onChange({ type: 'gradient', from: current.from ?? '#0a0a0f', to: current.to ?? '#1a0830', dir: current.dir ?? '135deg' });
                                 else onChange({ ...current, type: 'image' });
                             }}
-                            style={{
-                                flex: 1,
-                                ...controlStyle,
-                                padding: '5px 4px',
-                                textAlign: 'center',
-                                fontSize: 10,
-                                textTransform: 'capitalize',
-                                background: current.type === t ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.05)',
-                                border: current.type === t ? '1px solid rgba(99,102,241,0.5)' : '1px solid rgba(255,255,255,0.08)',
-                                color: current.type === t ? '#a5b4fc' : 'rgba(255,255,255,0.5)',
-                            }}
                         >
-                            {t}
-                        </button>
+                            {tx(t.label)}
+                        </SegmentButton>
                     ))}
                 </div>
 
                 {/* ── Solid controls ── */}
                 {current.type === 'solid' && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <div style={{ width: 32, height: 32, borderRadius: 6, background: current.color, border: '2px solid rgba(255,255,255,0.15)', overflow: 'hidden' }}>
-                                <input type="color" value={current.color ?? '#000000'} onChange={e => set({ color: e.target.value })}
-                                    style={{ opacity: 0, width: '100%', height: '100%', cursor: 'pointer', border: 'none', padding: 0 }} />
-                            </div>
-                            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', fontFamily: 'monospace' }}>{current.color?.toUpperCase()}</span>
-                        </label>
-                    </div>
+                    <ColorField
+                        hex={current.color ?? '#000000'}
+                        label={tx('Color')}
+                        onChange={color => set({ color })}
+                    />
                 )}
 
                 {/* ── Gradient controls ── */}
@@ -267,49 +246,41 @@ const BackgroundPanel = ({ bg, onChange, onClose }) => {
                         {/* Color stops */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <label style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                                <div style={{ width: 28, height: 28, borderRadius: 5, background: current.from, border: '2px solid rgba(255,255,255,0.15)', overflow: 'hidden' }}>
-                                    <input type="color" value={current.from ?? '#000000'} onChange={e => set({ from: e.target.value })}
-                                        style={{ opacity: 0, width: '100%', height: '100%', cursor: 'pointer', border: 'none', padding: 0 }} />
-                                </div>
-                                <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' }}>FROM</span>
+                                <span className="qs-swatch" style={{ width: 28, height: 28, background: current.from ?? '#000000' }}>
+                                    <input type="color" aria-label={tx('From')} value={current.from ?? '#000000'} onChange={e => set({ from: e.target.value })} />
+                                </span>
+                                <span style={{ fontSize: 10, color: 'var(--qs-text-faint)' }}>{tx('From')}</span>
                             </label>
 
                             {/* Live gradient preview */}
                             <div style={{
-                                flex: 1, height: 28, borderRadius: 5,
+                                flex: 1, height: 28, borderRadius: 'var(--qs-radius-sm)',
                                 background: `linear-gradient(${current.dir ?? '135deg'}, ${current.from}, ${current.to})`,
-                                border: '1px solid rgba(255,255,255,0.1)',
+                                border: '1px solid var(--qs-line-strong)',
                             }} />
 
                             <label style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                                <div style={{ width: 28, height: 28, borderRadius: 5, background: current.to, border: '2px solid rgba(255,255,255,0.15)', overflow: 'hidden' }}>
-                                    <input type="color" value={current.to ?? '#1a0830'} onChange={e => set({ to: e.target.value })}
-                                        style={{ opacity: 0, width: '100%', height: '100%', cursor: 'pointer', border: 'none', padding: 0 }} />
-                                </div>
-                                <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' }}>TO</span>
+                                <span className="qs-swatch" style={{ width: 28, height: 28, background: current.to ?? '#1a0830' }}>
+                                    <input type="color" aria-label={tx('To')} value={current.to ?? '#1a0830'} onChange={e => set({ to: e.target.value })} />
+                                </span>
+                                <span style={{ fontSize: 10, color: 'var(--qs-text-faint)' }}>{tx('To')}</span>
                             </label>
                         </div>
 
                         {/* Direction */}
                         <div>
-                            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Direction</div>
+                            <div className="qs-subhead">{tx('Direction')}</div>
                             <div style={{ display: 'flex', gap: 5 }}>
                                 {DIRS.map(d => (
-                                    <button
+                                    <SegmentButton
                                         key={d.value}
+                                        size="sm"
+                                        active={current.dir === d.value}
                                         onClick={() => set({ dir: d.value })}
-                                        style={{
-                                            ...controlStyle,
-                                            width: 32, height: 28,
-                                            padding: 0, textAlign: 'center',
-                                            fontSize: 14,
-                                            background: current.dir === d.value ? 'rgba(99,102,241,0.3)' : 'rgba(255,255,255,0.05)',
-                                            border: current.dir === d.value ? '1px solid rgba(99,102,241,0.5)' : '1px solid rgba(255,255,255,0.08)',
-                                            color: current.dir === d.value ? '#a5b4fc' : 'rgba(255,255,255,0.5)',
-                                        }}
+                                        style={{ width: 34, padding: 0, fontSize: 13 }}
                                     >
                                         {d.label}
-                                    </button>
+                                    </SegmentButton>
                                 ))}
                             </div>
                         </div>
@@ -320,18 +291,26 @@ const BackgroundPanel = ({ bg, onChange, onClose }) => {
                 {current.type === 'image' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {/* Upload */}
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            <button
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <Button
+                                variant="soft"
+                                size="sm"
+                                style={{ flex: 1 }}
                                 onClick={() => fileRef.current?.click()}
-                                style={{ ...controlStyle, background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', color: '#a5b4fc' }}
                             >
-                                {current.src ? <><RefreshCw size={11} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />Replace image</> : <><Upload size={11} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />Upload image</>}
-                            </button>
+                                {current.src
+                                    ? <><RefreshCw size={12} />{tx('Replace image')}</>
+                                    : <><Upload size={12} />{tx('Upload image')}</>}
+                            </Button>
                             {current.src && (
-                                <button onClick={() => set({ src: null })}
-                                    style={{ ...controlStyle, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', color: 'rgba(239,68,68,0.8)', display: 'flex', alignItems: 'center' }}>
+                                <IconButton
+                                    size="sm"
+                                    danger
+                                    title={tx('Remove image')}
+                                    onClick={() => set({ src: null })}
+                                >
                                     <X size={12} />
-                                </button>
+                                </IconButton>
                             )}
                             <input ref={fileRef} type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
                         </div>
@@ -339,60 +318,53 @@ const BackgroundPanel = ({ bg, onChange, onClose }) => {
                         {/* Preview */}
                         {current.src && (
                             <div style={{
-                                width: '100%', height: 72, borderRadius: 6,
+                                width: '100%', height: 72, borderRadius: 'var(--qs-radius-sm)',
                                 ...bgToStyle(current),
-                                border: '1px solid rgba(255,255,255,0.1)',
+                                border: '1px solid var(--qs-line-strong)',
                                 overflow: 'hidden',
                             }} />
                         )}
 
                         {/* Size */}
                         <div>
-                            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Fit</div>
+                            <div className="qs-subhead">{tx('Fit')}</div>
                             <div style={{ display: 'flex', gap: 5 }}>
-                                {['cover', 'contain', 'repeat'].map(s => (
-                                    <button key={s} onClick={() => set({ size: s })} style={{
-                                        ...controlStyle, flex: 1, textAlign: 'center', textTransform: 'capitalize',
-                                        background: current.size === s ? 'rgba(99,102,241,0.3)' : 'rgba(255,255,255,0.05)',
-                                        border: current.size === s ? '1px solid rgba(99,102,241,0.5)' : '1px solid rgba(255,255,255,0.08)',
-                                        color: current.size === s ? '#a5b4fc' : 'rgba(255,255,255,0.5)',
-                                    }}>
-                                        {s}
-                                    </button>
+                                {FIT_OPTIONS.map(opt => (
+                                    <SegmentButton
+                                        key={opt.id}
+                                        size="sm"
+                                        active={current.size === opt.id}
+                                        style={{ flex: 1 }}
+                                        onClick={() => set({ size: opt.id })}
+                                    >
+                                        {tx(opt.label)}
+                                    </SegmentButton>
                                 ))}
                             </div>
                         </div>
 
                         {/* Dark overlay */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 1 }}>Dark overlay</span>
+                                <span style={{ fontSize: 11.5, color: 'var(--qs-text-dim)' }}>{tx('Dark overlay')}</span>
                                 <button
+                                    type="button"
+                                    role="switch"
+                                    aria-label={tx('Dark overlay')}
+                                    aria-checked={!!current.overlay}
+                                    className="qs-switch"
                                     onClick={() => set({ overlay: !current.overlay })}
-                                    style={{
-                                        width: 32, height: 16, borderRadius: 99, border: 'none', cursor: 'pointer',
-                                        background: current.overlay ? '#6366f1' : 'rgba(255,255,255,0.15)',
-                                        position: 'relative', transition: 'background 0.15s',
-                                    }}
-                                >
-                                    <div style={{
-                                        position: 'absolute', top: 2, width: 12, height: 12, borderRadius: '50%', background: '#fff',
-                                        left: current.overlay ? 18 : 2, transition: 'left 0.15s',
-                                    }} />
-                                </button>
+                                />
                             </div>
                             {current.overlay && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <input
-                                        type="range" min={0} max={0.9} step={0.05}
-                                        value={current.overlayOpacity ?? 0.3}
-                                        onChange={e => set({ overlayOpacity: Number(e.target.value) })}
-                                        style={{ flex: 1, accentColor: '#6366f1' }}
-                                    />
-                                    <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', fontFamily: 'monospace', minWidth: 30 }}>
-                                        {Math.round((current.overlayOpacity ?? 0.3) * 100)}%
-                                    </span>
-                                </div>
+                                <Slider
+                                    min={0}
+                                    max={0.9}
+                                    step={0.05}
+                                    value={current.overlayOpacity ?? 0.3}
+                                    ariaLabel={tx('Overlay opacity')}
+                                    onChange={overlayOpacity => set({ overlayOpacity })}
+                                />
                             )}
                         </div>
                     </div>
@@ -400,8 +372,8 @@ const BackgroundPanel = ({ bg, onChange, onClose }) => {
 
                 {/* Transparent hint */}
                 {current.type === 'transparent' && (
-                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontFamily: 'monospace', lineHeight: 1.5 }}>
-                        OBS will see through to whatever is behind the browser source. Use chroma key or scene layers as needed.
+                    <div className="qs-hint" style={{ padding: '8px 10px' }}>
+                        <span>{tx('OBS will see through to whatever is behind the browser source. Use chroma key or scene layers as needed.')}</span>
                     </div>
                 )}
             </div>

@@ -10,7 +10,7 @@ import { Bot, Camera, ListChecks, Monitor, Video } from 'lucide-react';
 // calm, consistent set rather than a rainbow. Previews draw in `currentColor`
 // (the tile sets it), so an item's icon always matches its section.
 const TONE = {
-    cams:   '#a5b4fc', // periwinkle
+    cams:   '#ff7956', // coral
     text:   '#c4b5fd', // lavender
     timers: '#7dd3fc', // sky
     goals:  '#86efac', // mint
@@ -119,8 +119,8 @@ export const ELEMENT_TYPES = [
             <path d="M22 30 L29 6 L46 26 Z" fill={C} />
             <path d="M90 30 L83 6 L66 26 Z" fill={C} />
             <ellipse cx="56" cy="57" rx="40" ry="33" fill={C} />
-            <ellipse cx="44" cy="54" rx="5.5" ry="7" fill="#15121c" />
-            <ellipse cx="68" cy="54" rx="5.5" ry="7" fill="#15121c" />
+            <ellipse cx="44" cy="54" rx="5.5" ry="7" fill="var(--qs-panel, #141513)" />
+            <ellipse cx="68" cy="54" rx="5.5" ry="7" fill="var(--qs-panel, #141513)" />
         </svg>
     )},
     { type: 'moodring',   label: 'Mood ring',   color: TONE.fun, preview: (
@@ -131,13 +131,13 @@ export const ELEMENT_TYPES = [
             {[0, 1, 2, 3].map(i => (
                 <path key={i} d="M10 10 L10 1.5 A8.5 8.5 0 0 1 18.5 10 Z" fill={C} opacity={[1, 0.55, 0.8, 0.35][i]} transform={`rotate(${i * 90} 10 10)`} />
             ))}
-            <circle cx="10" cy="10" r="2.4" fill="#15121c" />
+            <circle cx="10" cy="10" r="2.4" fill="var(--qs-panel, #141513)" />
         </svg>
     )},
     { type: 'note',       label: 'Sticky note', color: TONE.fun, preview: (
         <span style={{ position: 'relative', width: 15, height: 15, display: 'block', transform: 'rotate(-5deg)', borderRadius: 2, ...dim(0.9) }}>
-            <span style={{ position: 'absolute', top: 4, left: 3, right: 3, height: 1.5, background: '#15121c', opacity: 0.5 }} />
-            <span style={{ position: 'absolute', top: 7.5, left: 3, right: 6, height: 1.5, background: '#15121c', opacity: 0.5 }} />
+            <span style={{ position: 'absolute', top: 4, left: 3, right: 3, height: 1.5, background: 'var(--qs-panel, #141513)', opacity: 0.5 }} />
+            <span style={{ position: 'absolute', top: 7.5, left: 3, right: 6, height: 1.5, background: 'var(--qs-panel, #141513)', opacity: 0.5 }} />
         </span>
     )},
 

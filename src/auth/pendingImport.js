@@ -15,18 +15,32 @@ export function stashImport(draft) {
 }
 
 export function hasPendingImport() {
-    try { return !!localStorage.getItem(KEY); } catch { return false; }
+    return !!peekImport();
 }
 
-export function takeImport() {
+export function peekImport() {
     try {
         const raw = localStorage.getItem(KEY);
-        localStorage.removeItem(KEY);
-        const data = raw ? JSON.parse(raw) : null;
-        return data && Date.now() - data.at < MAX_AGE_MS ? data.draft : null;
+        if (!raw) return null;
+        const data = JSON.parse(raw);
+        if (!data || Date.now() - data.at >= MAX_AGE_MS) {
+            localStorage.removeItem(KEY);
+            return null;
+        }
+        return data.draft ?? null;
     } catch {
         return null;
     }
+}
+
+export function clearImport() {
+    try { localStorage.removeItem(KEY); } catch { /* ignore */ }
+}
+
+export function takeImport() {
+    const draft = peekImport();
+    clearImport();
+    return draft;
 }
 
 export function createProjectFrom(draft, name = 'Meu overlay') {
