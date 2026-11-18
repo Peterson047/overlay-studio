@@ -1,0 +1,70 @@
+.qhelp-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.qt-toc .qhelp-sub { margin: 8px 0 4px 12px; gap: 6px; font-size: 13px; }
+
+.qhelp-search {
+    position: relative; display: flex; align-items: center; margin-top: 28px;
+    border: 1px solid var(--line); border-radius: 999px; background: var(--surface, #1a1c19);
+}
+.qhelp-search svg { position: absolute; left: 18px; color: var(--muted); pointer-events: none; }
+.qhelp-search input {
+    width: 100%; min-height: 52px; padding: 0 20px 0 48px; border: 0; border-radius: 999px;
+    background: transparent; color: var(--ink); font: 16px Inter, sans-serif;
+}
+.qhelp-search:focus-within { border-color: var(--ink); }
+.qhelp-search input:focus { outline: none; }
+
+.qt-body .qhelp-quick { list-style: none; padding: 0; gap: 12px; margin: 0 0 20px; }
+.qhelp-quick li { display: flex; gap: 16px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface, #1a1c19); }
+.qhelp-quick h3 { margin: 0 0 4px; font-size: 17px; }
+.qhelp-quick p { margin: 0; }
+.qhelp-num {
+    flex-shrink: 0; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+    background: var(--red, #e2021b); color: #fff; font: 700 14px/1 Inter, sans-serif;
+}
+
+.qhelp-doc { padding-block: 20px; border-top: 1px solid var(--line); scroll-margin-top: 16px; }
+.qhelp-doc:first-of-type { border-top: 0; padding-top: 4px; }
+.qhelp-doc h3 { font-size: 20px; margin: 0 0 10px; }
+.qhelp-doc > * + * { margin-top: 12px; }
+
+.qhelp-faq { display: grid; gap: 8px; }
+.qhelp-faq details { border: 1px solid var(--line); border-radius: 12px; background: var(--surface, #1a1c19); }
+.qhelp-faq summary {
+    display: flex; justify-content: space-between; gap: 16px; padding: 16px 20px;
+    cursor: pointer; list-style: none; font-weight: 600; color: var(--ink);
+}
+.qhelp-faq summary::-webkit-details-marker { display: none; }
+.qhelp-faq summary::after { content: '+'; color: var(--red, #e2021b); font-size: 20px; line-height: 1; }
+.qhelp-faq details[open] summary::after { content: '−'; }
+.qhelp-faq summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 12px; }
+.qhelp-faq details p { margin: 0; padding: 0 20px 18px; }
+
+.qt-body .qhelp-contact { padding: 28px; border: 1px solid rgba(226, 2, 27, 0.35); border-radius: 18px; background: linear-gradient(135deg, rgba(226, 2, 27, 0.16), transparent 60%), var(--surface, #1a1c19); }
+.qhelp-contact h2 { margin-bottom: 6px; }
+.qhelp-contact .qorp-home-actions { margin-top: 18px; }
+
+/* Legal pages */
+.qlegal-updated { margin: 10px 0 0; color: var(--muted); font-size: 14px; }
+.qlegal h2 { font-size: clamp(20px, 2.4vw, 26px); }
+.qlegal section > * + * { margin-top: 12px; }
+.qlegal-other { margin-top: 20px; font-size: 14px; }
+.qlegal-other a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+
+/* Refinements */
+.qhelp-search kbd {
+    position: absolute; right: 16px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px;
+    color: var(--muted); font: 600 12px/1.4 Inter, sans-serif; pointer-events: none;
+}
+.qt-toc a[aria-current="location"] { color: var(--ink); font-weight: 600; }
+.qt-toc a[aria-current="location"]::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 8px; border-radius: 50%; background: var(--red, #e2021b); vertical-align: 2px; }
+.qhelp-doc h3 { display: flex; align-items: center; gap: 8px; }
+.qhelp-anchor { display: inline-flex; color: var(--muted); opacity: 0; transition: opacity .15s; }
+.qhelp-doc:hover .qhelp-anchor, .qhelp-anchor:focus-visible { opacity: 1; }
+.qhelp-doc:target h3 { color: var(--red, #e2021b); }
+.qhelp-legal { font-size: 14px; color: var(--muted); }
+@media (hover: none) { .qhelp-anchor { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .qhelp-anchor { transition: none; } }
+
+/* The public header is sticky (~72px): keep anchored headings visible. */
+.qhelp .qhelp-doc, .qhelp section[id], .qlegal section { scroll-margin-top: 96px; }
+.qhelp .qt-toc { top: 96px; }

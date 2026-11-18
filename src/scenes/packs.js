@@ -3,8 +3,8 @@
 // the theme (re-skinning every token-authored scene) AND drops you onto a
 // ready-made scene so you instantly see the complete look.
 
-import { THEMES } from '../theme/themes';
-import { SCENE_PRESETS } from './presets';
+import { THEMES } from '../theme/themes.js';
+import { SCENE_PRESETS } from './presets.js';
 
 const preset = (id) => SCENE_PRESETS.find(p => p.id === id);
 const theme = (id) => THEMES.find(t => t.id === id);
@@ -14,6 +14,7 @@ export const THEME_PACKS = [
     { id: 'neon',     name: 'Neon',     themeId: 'neon',     tagline: 'Cyber mono, high contrast', startScene: 'starting-soon' },
     { id: 'minimal',  name: 'Minimal',  themeId: 'minimal',  tagline: 'Sharp, monochrome',         startScene: 'just-chatting' },
     { id: 'warm',     name: 'Warm',     themeId: 'warm',     tagline: 'Amber, soft corners',        startScene: 'brb' },
+    { id: 'aurora',   name: 'Aurora',   themeId: 'aurora',   tagline: 'Teal → indigo, soft glow',  startScene: 'starting-soon' },
 ];
 
 // The accent gradient used for a pack's preview swatch.

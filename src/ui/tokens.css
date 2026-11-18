@@ -1,0 +1,52 @@
+/*
+ * qorpStreamer studio design tokens. The studio UI (not the overlay themes
+ * shown on stream) reads these. Change a value here and the whole UI follows.
+ */
+:root {
+    /* surfaces */
+    --qs-bg: #0e0f0d;
+    --qs-panel: #141513;
+    --qs-raised: #1b1d1a;
+    --qs-field: #1f221e;
+    --qs-field-hover: #262924;
+    --qs-line: rgba(255, 255, 255, 0.08);
+    --qs-line-strong: rgba(255, 255, 255, 0.16);
+
+    /* text */
+    --qs-text: #f3f3ee;
+    --qs-text-dim: #b4b6ad;
+    --qs-text-faint: #7e8178;
+
+    /* brand + states */
+    --qs-accent: #e2021b;
+    --qs-accent-hover: #ff2238;
+    --qs-accent-text: #ff5a6c;
+    --qs-accent-soft: rgba(226, 2, 27, 0.16);
+    --qs-accent-line: rgba(255, 64, 86, 0.55);
+    --qs-success: #4ade80;
+    --qs-warning: #facc15;
+    --qs-danger: #ff6b6b;
+    --qs-danger-soft: rgba(255, 107, 107, 0.14);
+    --qs-focus: #ff5a6c;
+
+    /* type */
+    --qs-font: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --qs-mono: "JetBrains Mono", ui-monospace, monospace;
+    --qs-text-xs: 11px;
+    --qs-text-sm: 12px;
+    --qs-text-md: 13px;
+    --qs-text-lg: 15px;
+
+    /* shape and size */
+    --qs-radius-sm: 6px;
+    --qs-radius: 8px;
+    --qs-radius-lg: 12px;
+    --qs-control: 30px;      /* dense editor controls */
+    --qs-control-lg: 40px;
+    --qs-control-xl: 48px;   /* primary actions, live panel */
+    --qs-space-1: 4px;
+    --qs-space-2: 8px;
+    --qs-space-3: 12px;
+    --qs-space-4: 16px;
+    --qs-ease: cubic-bezier(.2, .8, .2, 1);
+}

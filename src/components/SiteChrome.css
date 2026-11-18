@@ -1,0 +1,19 @@
+/* Language switch (public pages and account). */
+.qorp-lang { display: inline-flex; padding: 2px; border: 1px solid #2c2f2a; border-radius: 999px; background: rgba(255, 255, 255, 0.02); }
+.qorp-lang button {
+    min-width: 32px; min-height: 26px; padding: 0 8px; border: 0; border-radius: 999px;
+    background: transparent; color: #a6a99f; font: 600 12px/1 Inter, sans-serif; cursor: pointer;
+}
+.qorp-lang button:hover { color: #f3f3ee; }
+.qorp-lang button[aria-pressed="true"] { background: rgba(255, 255, 255, 0.12); color: #f3f3ee; }
+.qorp-lang button:focus { outline: none; }
+.qorp-lang button:focus-visible { outline: 2px solid #f3f3ee; outline-offset: 1px; }
+
+/* Wordmark */
+.qorp-wordmark { display: inline-flex; align-items: center; gap: calc(var(--mark) * 0.3); }
+.qorp-wordmark img { width: var(--mark); height: var(--mark); flex-shrink: 0; }
+.qorp-wordmark > span { font: 800 calc(var(--mark) * 0.56)/1 Inter, sans-serif; letter-spacing: -0.04em; color: #f3f3ee; white-space: nowrap; }
+.qorp-wordmark b { font-weight: 800; }
+.qorp-wordmark i { font-style: normal; font-weight: 800; color: #ff2238; }
+.qorp-footer-brand { display: grid; gap: 10px; }
+.qorp-footer-brand p { margin: 0; color: #a6a99f; font-size: 14px; max-width: 34ch; }

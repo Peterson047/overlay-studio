@@ -93,18 +93,42 @@ const writeJsonMap = (storageKey, map) => {
     }
 };
 
+// The OBS player (?obs / ?clean) runs inside OBS itself, where nobody can
+// click a button, so it always tries to connect. The editor only connects
+// after the user opts in, so a studio without OBS open stays quiet.
+const CLEAN_MODE = (() => {
+    try {
+        const p = new URLSearchParams(window.location.search);
+        return p.has('obs') || p.has('clean');
+    } catch {
+        return false;
+    }
+})();
+
 const loadObsConfig = () => {
     try {
         const raw = localStorage.getItem(CONFIG_STORAGE_KEY);
-        if (!raw) return { url: '', password: '' };
+        if (!raw) return { url: '', password: '', enabled: false };
         const parsed = JSON.parse(raw);
         return {
             url: typeof parsed?.url === 'string' ? parsed.url : '',
             password: typeof parsed?.password === 'string' ? parsed.password : '',
+            // Configs saved before this flag existed came from users who set
+            // up the WebSocket on purpose, so they stay enabled.
+            enabled: typeof parsed?.enabled === 'boolean' ? parsed.enabled : true,
         };
     } catch {
-        return { url: '', password: '' };
+        return { url: '', password: '', enabled: false };
     }
+};
+
+const saveObsConfig = (config) => {
+    try {
+        localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(config));
+    } catch {
+        // Ignore storage quota / privacy mode failures
+    }
+    return config;
 };
 
 const normalizeWsUrl = (raw) => {
@@ -610,22 +634,24 @@ export const OBSProvider = ({ children }) => {
     }, [isConnected]);
 
     const updateObsConfig = useCallback((patch) => {
-        setObsConfig((prev) => {
-            const next = { ...prev, ...patch };
-            try {
-                localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(next));
-            } catch {
-                // Ignore storage quota / privacy mode failures
-            }
-            return next;
-        });
+        setObsConfig((prev) => saveObsConfig({ ...prev, enabled: true, ...patch }));
         setConnectionError(null);
         setConnectNonce((n) => n + 1);
     }, []);
 
+    // Also the "Connect to OBS" opt-in.
     const reconnect = useCallback(() => {
+        setObsConfig((prev) => (prev.enabled ? prev : saveObsConfig({ ...prev, enabled: true })));
         setConnectionError(null);
         setConnectNonce((n) => n + 1);
+    }, []);
+
+    const disableObs = useCallback(() => {
+        setObsConfig((prev) => saveObsConfig({ ...prev, enabled: false }));
+        setConnectionError(null);
+        setIsConnected(false);
+        setIsRecording(false);
+        setCamStatus(null);
     }, []);
 
     // Auto-place native OBS camera sources to match the overlay's cam boxes.
@@ -741,8 +767,11 @@ export const OBSProvider = ({ children }) => {
         return queued;
     }, [persistTransformState]);
 
+    const autoConnect = obsConfig.enabled || CLEAN_MODE;
+
     useEffect(() => {
         mountedRef.current = true;
+        if (!autoConnect) return undefined;
         let cancelled = false;
         const sessionObs = new OBSWebSocket();
         obsRef.current = sessionObs;
@@ -902,7 +931,7 @@ export const OBSProvider = ({ children }) => {
             };
             cleanup();
         };
-    }, [obsConfig.url, obsConfig.password, connectNonce, placeCameras, persistTransformState]);
+    }, [autoConnect, obsConfig.url, obsConfig.password, connectNonce, placeCameras, persistTransformState]);
 
     return (
         <OBSContext.Provider
@@ -915,6 +944,7 @@ export const OBSProvider = ({ children }) => {
                 obsConfig,
                 updateObsConfig,
                 reconnect,
+                disableObs,
                 placeCameras,
             }}
         >

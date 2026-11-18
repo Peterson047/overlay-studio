@@ -35,3 +35,11 @@ dist-ssr
 promo-videos/
 
 !.env.example
+
+# Test output
+coverage/
+test-results/
+playwright-report/
+
+# Local agent settings
+.claude/settings.local.json

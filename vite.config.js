@@ -312,6 +312,64 @@ function localUsageApi() {
   }
 }
 
+// Dev-only adapter that runs the Vercel functions backed by Supabase
+// (api/projects.js, api/project-layout.js) inside Vite, with a minimal
+// req/res shim matching what Vercel passes. Server-only secrets come from
+// .env.local via loadEnv and never reach the browser bundle.
+function localServerlessApi(env, routes) {
+  for (const [k, v] of Object.entries(env)) {
+    if (/^(SUPABASE_|VITE_SUPABASE_|STRIPE_|QORP_|SITE_URL$)/.test(k) && process.env[k] === undefined) process.env[k] = v
+  }
+  return {
+    name: 'local-serverless-api',
+    configureServer(server) {
+      for (const route of routes) {
+        server.middlewares.use(`/api/${route}`, async (req, res) => {
+          const url = new URL(req.originalUrl || req.url || '/', 'http://localhost')
+          const chunks = []
+          for await (const chunk of req) {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+          }
+          const rawBuf = Buffer.concat(chunks)
+          const vreq = {
+            method: req.method,
+            headers: req.headers,
+            query: Object.fromEntries(url.searchParams),
+            body: rawBuf.length ? rawBuf.toString('utf8') : undefined,
+          }
+          const vres = {
+            status(code) { res.statusCode = code; return this },
+            setHeader(k, v) { res.setHeader(k, v); return this },
+            json(data) { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(data)); return this },
+            end(data) { res.end(data); return this },
+          }
+          try {
+            const mod = await server.ssrLoadModule(`/api/${route}.js`)
+            // Web-standard handlers (export function POST/GET) get a real Request,
+            // like on Vercel; classic (req, res) handlers get the shim above.
+            const webHandler = mod[req.method]
+            if (typeof webHandler === 'function' && typeof mod.default !== 'function') {
+              const response = await webHandler(new Request(url, {
+                method: req.method, headers: req.headers,
+                body: rawBuf.length && !['GET', 'HEAD'].includes(req.method) ? rawBuf : undefined,
+              }))
+              res.statusCode = response.status
+              response.headers.forEach((v, k) => res.setHeader(k, v))
+              res.end(Buffer.from(await response.arrayBuffer()))
+              return
+            }
+            if (typeof mod.default !== 'function') { res.statusCode = 405; res.end(); return }
+            await mod.default(vreq, vres)
+          } catch (err) {
+            console.error(`[local ${route}]`, err)
+            if (!res.headersSent) { res.statusCode = 500; res.end(JSON.stringify({ error: 'Internal server error' })) }
+          }
+        })
+      }
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
@@ -321,6 +379,7 @@ export default defineConfig(({ mode }) => {
       localLayoutApi(),
       localScoresApi(env.FOOTBALL_DATA_TOKEN, env.FOOTBALL_DATA_COMPETITION || 'WC'),
       localUsageApi(),
+      localServerlessApi(env, ['projects', 'project-layout', 'billing', 'stripe-webhook']),
     ],
     // Keep the browser target used by the previous build for OBS browser sources.
     build: {

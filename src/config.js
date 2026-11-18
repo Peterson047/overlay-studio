@@ -59,6 +59,8 @@ export function usageUrl() {
 // True when no explicit room was chosen — i.e. we're on the shared default slot
 // that every fresh visitor lands on. "Go Live" mints a private room from here.
 export function isDefaultRoom() {
+    // Account projects (?project=) are never the shared default slot.
+    if (new URLSearchParams(window.location.search).has('project')) return false;
     return getRoom() === 'default';
 }
 

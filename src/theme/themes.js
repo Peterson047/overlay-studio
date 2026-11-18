@@ -17,6 +17,8 @@
 //   lowerThird  — lower-third plate style (see LOWER_THIRDS)
 //   displayFont — headline font; falls back to fontFamily
 
+import { OWNER_ONLY_BACKDROPS, OWNER_ONLY_THEME_IDS } from './entitlements.js';
+
 export const THEMES = [
     {
         id: 'midnight',
@@ -602,15 +604,6 @@ export const THEMES = [
         backdrop: 'vicebeach', textFx: 'neon', lowerThird: 'neon',
     },
     {
-        id: 'xaxinim-vice', name: 'Xaxinim · Vice Beach',
-        accent: '#e89cad', accent2: '#f8c6a4',
-        textColor: '#fff4df', panelColor: '#211b30',
-        fontFamily: "'Inter', system-ui, sans-serif",
-        displayFont: "'Pacifico', 'Fredoka', cursive",
-        cornerRadius: 6, frameStyle: 'gradient',
-        backdrop: 'vicedusk', textFx: 'plain', lowerThird: 'bar',
-    },
-    {
         id: 'nether', name: 'Minecraft Nether',
         accent: '#ff7a1a', accent2: '#8a2323',
         textColor: '#fff1e6', panelColor: '#1e0b0b',
@@ -657,11 +650,37 @@ export const THEMES = [
     },
 ];
 
+const OWNER_THEMES = [
+    {
+        id: 'xaxinim-vice', name: 'Xaxinim · Vice Beach',
+        accent: '#e89cad', accent2: '#f8c6a4',
+        textColor: '#fff4df', panelColor: '#211b30',
+        fontFamily: "'Inter', system-ui, sans-serif",
+        displayFont: "'Pacifico', 'Fredoka', cursive",
+        cornerRadius: 6, frameStyle: 'gradient',
+        backdrop: 'vicedusk', textFx: 'plain', lowerThird: 'bar',
+    },
+];
+
+const ALL_THEMES = [...THEMES, ...OWNER_THEMES];
+
+export const getVisibleThemes = ({ isOwner = false } = {}) => (
+    isOwner ? ALL_THEMES : THEMES
+);
+
 export const DEFAULT_THEME = THEMES[0];
 
-export const getTheme = (idOrTheme) => {
-    if (idOrTheme && typeof idOrTheme === 'object') return { ...DEFAULT_THEME, ...idOrTheme };
-    return THEMES.find(t => t.id === idOrTheme) ?? DEFAULT_THEME;
+export const getTheme = (idOrTheme, { includeOwner = false } = {}) => {
+    if (idOrTheme && typeof idOrTheme === 'object') {
+        const themeId = typeof idOrTheme.id === 'string' ? idOrTheme.id.trim().toLowerCase() : '';
+        const backdrop = typeof idOrTheme.backdrop === 'string' ? idOrTheme.backdrop.trim().toLowerCase() : '';
+        if (!includeOwner && (OWNER_ONLY_THEME_IDS.has(themeId) || OWNER_ONLY_BACKDROPS.has(backdrop))) {
+            return DEFAULT_THEME;
+        }
+        return { ...DEFAULT_THEME, ...idOrTheme };
+    }
+    const pool = includeOwner ? ALL_THEMES : THEMES;
+    return pool.find(t => t.id === idOrTheme) ?? DEFAULT_THEME;
 };
 
 // Maps a token string → the active theme's value. Non-token values (and

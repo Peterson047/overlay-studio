@@ -228,10 +228,10 @@ const Cover = () => {
             <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, #07070f 0%, rgba(7,7,15,0.95) 36%, rgba(7,7,15,0.3) 50%, transparent 60%)' }} />
             {/* headline */}
             <div style={{ position: 'absolute', left: 70, top: 0, bottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', width: 640 }}>
-                <div style={{ fontSize: 22, letterSpacing: 6, textTransform: 'uppercase', color: '#a5b4fc', fontWeight: 600 }}>qorpStreamer</div>
+                <div style={{ fontSize: 22, letterSpacing: 6, textTransform: 'uppercase', color: '#ff7956', fontWeight: 600 }}>qorpStreamer</div>
                 <div style={{ fontSize: 112, fontWeight: 700, lineHeight: 0.95, letterSpacing: -3, marginTop: 22 }}>
                     FREE<br />STREAM<br />
-                    <span style={{ background: 'linear-gradient(90deg, #818cf8, #f472b6, #fbbf24)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>OVERLAYS</span>
+                    <span style={{ background: 'linear-gradient(90deg, #ff5a6c, #ff7956, #fbbf24)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>OVERLAYS</span>
                 </div>
                 <div style={{ fontSize: 30, marginTop: 30, color: 'rgba(255,255,255,0.82)' }}>No download. One link into OBS.</div>
                 <div style={{ display: 'flex', gap: 12, marginTop: 30 }}>

@@ -69,13 +69,20 @@ export const BACKDROPS = [
     { id: 'sunset',    label: 'Sunset city' },
     { id: 'hextech',   label: 'Hextech runes' },
     { id: 'vicebeach', label: 'Vice beach' },
-    { id: 'vicedusk', label: 'Vice beach · dusk' },
     { id: 'nether',    label: 'Nether lava' },
     { id: 'scope',     label: 'Sniper scope' },
     { id: 'dust',      label: 'Desert site' },
     { id: 'blaze',     label: 'Flame wall' },
     { id: 'obby',      label: 'Stud platforms' },
 ];
+
+const OWNER_BACKDROPS = [
+    { id: 'vicedusk', label: 'Vice beach · dusk' },
+];
+
+export const getVisibleBackdrops = ({ isOwner = false } = {}) => (
+    isOwner ? [...BACKDROPS, ...OWNER_BACKDROPS] : BACKDROPS
+);
 
 const Corner = ({ pos, color, size = 90, w = 3 }) => {
     const [v, h] = pos;   // 't'|'b', 'l'|'r'
@@ -1466,13 +1473,22 @@ const BACKDROP_MAP = {
     diyas: Diyas, fireworks: Fireworks, snowfall: Snowfall, pumpkins: Pumpkins, holi: Holi,
     lanterns: Lanterns, crescent: Crescent, hearts: Hearts, leaves: Leaves, balloons: Balloons,
     shards: Shards, airdrop: Airdrop, storm: Storm, radar: Radar, ring: Ring, blocks: Blocks,
-    sunset: Sunset, hextech: Hextech, vicebeach: ViceBeach, vicedusk: ViceDusk, nether: Nether, scope: Scope, dust: Dust,
+    sunset: Sunset, hextech: Hextech, vicebeach: ViceBeach, nether: Nether, scope: Scope, dust: Dust,
     blaze: Blaze, obby: Obby,
 };
 
+const OWNER_BACKDROP_MAP = {
+    vicedusk: ViceDusk,
+};
+
+export const getBackdrop = (variant, { includeOwner = false } = {}) => {
+    if (includeOwner && OWNER_BACKDROP_MAP[variant]) return OWNER_BACKDROP_MAP[variant];
+    return BACKDROP_MAP[variant] ?? Bokeh;
+};
+
 // `holes` + `box` cut the backdrop away over cameras (see holeMask below).
-export const Backdrop = ({ variant, T, opacity = 1, holes, box }) => {
-    const Comp = BACKDROP_MAP[variant] ?? Bokeh;
+export const Backdrop = ({ variant, T, opacity = 1, holes, box, includeOwner = false }) => {
+    const Comp = (includeOwner && OWNER_BACKDROP_MAP[variant]) || BACKDROP_MAP[variant] || Bokeh;
     return (
         <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', opacity, pointerEvents: 'none', ...holeMask(holes, box) }}>
             <Comp a={T.accent} b={T.accent2 ?? T.accent} panel={T.panelColor} text={T.textColor} />

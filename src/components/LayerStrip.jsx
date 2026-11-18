@@ -1,49 +1,47 @@
 import { ChevronDown, ChevronUp, Eye, EyeOff, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { BUILTIN_LAYERS, ELEMENT_TYPE_MAP } from './elementCatalog';
+import { IconButton } from '../ui';
+import { useI18n } from '../i18n';
+import { tx } from '../i18n/studio';
 
 // Every layer in the current scene, as a grid of cards under the editor canvas
 // (where the 16:9 canvas leaves free space). Front-most first, like the canvas
 // stacking. The left panel is just the Add toolbox now.
 
 const ActionBtn = ({ title, onClick, danger, children }) => (
-    <button
+    <IconButton
+        size="sm"
+        variant="ghost"
+        danger={danger}
         title={title}
-        aria-label={title}
         onClick={(e) => { e.stopPropagation(); onClick?.(); }}
-        style={{
-            width: 22, height: 22, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            borderRadius: 6, padding: 0, cursor: 'pointer', background: 'transparent', border: '1px solid transparent',
-            color: 'rgba(255,255,255,0.4)', transition: 'all 0.1s',
-        }}
-        onMouseEnter={e => {
-            e.currentTarget.style.background = danger ? 'rgba(239,68,68,0.14)' : 'rgba(255,255,255,0.08)';
-            e.currentTarget.style.color = danger ? '#fca5a5' : '#fff';
-        }}
-        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)'; }}
     >
         {children}
-    </button>
+    </IconButton>
 );
 
 const LayerCard = ({ icon, label, kind, color, visible, selected, touch, narrow, onSelect, onToggle, onUp, onDown, onRemove }) => {
     const [hover, setHover] = useState(false);
     const showFull = hover || selected || touch || narrow;
+    const hiddenLabel = tx('{kind} · hidden', { kind });
     return (
         <div
+            role="button"
+            tabIndex={0}
+            aria-pressed={selected}
+            data-selected={selected || undefined}
             onClick={onSelect}
+            onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return;
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect?.(); }
+            }}
             onMouseEnter={() => setHover(true)}
             onMouseLeave={() => setHover(false)}
-            style={{
-                display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, padding: '6px 6px 6px 6px', borderRadius: 10,
-                cursor: 'pointer', userSelect: 'none',
-                background: selected ? 'rgba(99,102,241,0.16)' : hover ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.025)',
-                border: `1px solid ${selected ? 'rgba(165,180,252,0.6)' : hover ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)'}`,
-                transition: 'background 0.1s, border-color 0.1s',
-            }}
+            className="qs-layercard"
         >
             <span style={{
-                width: 30, height: 30, flexShrink: 0, borderRadius: 8, color,
+                width: 30, height: 30, flexShrink: 0, borderRadius: 'var(--qs-radius)', color,
                 display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
                 background: `linear-gradient(145deg, ${color}26, ${color}0a)`, boxShadow: `inset 0 0 0 1px ${color}2e`,
                 opacity: visible ? 1 : 0.4, filter: visible ? 'none' : 'grayscale(1)',
@@ -51,27 +49,32 @@ const LayerCard = ({ icon, label, kind, color, visible, selected, touch, narrow,
                 <span style={{ display: 'flex', transform: 'scale(0.8)' }}>{icon}</span>
             </span>
             <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <span style={{ fontSize: 11.5, fontWeight: 500, color: visible ? 'rgba(255,255,255,0.88)' : 'rgba(255,255,255,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: visible ? 'none' : 'line-through' }}>
+                <span style={{
+                    fontSize: 11.5, fontWeight: 500, fontFamily: 'var(--qs-font)',
+                    color: visible ? 'var(--qs-text)' : 'var(--qs-text-faint)',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    textDecoration: visible ? 'none' : 'line-through',
+                }}>
                     {label}
                 </span>
-                <span style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.35)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {visible ? kind : `${kind} · hidden`}
+                <span style={{ fontSize: 10, fontFamily: 'var(--qs-font)', color: 'var(--qs-text-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {visible ? kind : hiddenLabel}
                 </span>
             </span>
             {/* Hide/show and delete remain visible without hover (e.g. touch/narrow devices); reorder arrows reveal on active/hover/touch. */}
-            <span style={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0, opacity: showFull ? 1 : 0.55, transition: 'opacity 0.12s' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0, opacity: showFull ? 1 : 0.65, transition: 'opacity 0.12s' }}>
                 {onToggle && (
-                    <ActionBtn title={visible ? 'Hide' : 'Show'} onClick={onToggle}>
+                    <ActionBtn title={tx(visible ? 'Hide' : 'Show')} onClick={onToggle}>
                         {visible ? <Eye size={13} /> : <EyeOff size={13} />}
                     </ActionBtn>
                 )}
                 {showFull && (
                     <>
-                        <ActionBtn title="Bring forward" onClick={onUp}><ChevronUp size={13} /></ActionBtn>
-                        <ActionBtn title="Send backward" onClick={onDown}><ChevronDown size={13} /></ActionBtn>
+                        <ActionBtn title={tx('Bring forward')} onClick={onUp}><ChevronUp size={13} /></ActionBtn>
+                        <ActionBtn title={tx('Send backward')} onClick={onDown}><ChevronDown size={13} /></ActionBtn>
                     </>
                 )}
-                <ActionBtn title="Remove" danger onClick={onRemove}><Trash2 size={12} /></ActionBtn>
+                <ActionBtn title={tx('Remove')} danger onClick={onRemove}><Trash2 size={12} /></ActionBtn>
             </span>
         </div>
     );
@@ -90,6 +93,7 @@ const LayerStrip = ({
     onSelectElement, onToggleElement, onElementUp, onElementDown, onDeleteElement,
     narrow,
 }) => {
+    useI18n();
     const [isTouch, setIsTouch] = useState(() => (
         typeof window !== 'undefined' && typeof window.matchMedia === 'function'
             ? window.matchMedia(TOUCH_MEDIA_QUERY).matches
@@ -111,24 +115,27 @@ const LayerStrip = ({
     const visible = builtins.length + elements.filter(e => !e.hidden).length;
 
     return (
-        <div style={{ marginTop: narrow ? 10 : 16, fontFamily: 'inter, system-ui, sans-serif' }}>
+        <div style={{ marginTop: narrow ? 10 : 16, fontFamily: 'var(--qs-font)' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 8, padding: '0 2px' }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                    <span style={{ fontSize: 10, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: 2.5, color: 'rgba(255,255,255,0.5)' }}>Layers in this scene</span>
-                    <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'rgba(255,255,255,0.28)' }}>{visible}/{total} visible</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--qs-text-dim)' }}>{tx('Layers in this scene')}</span>
+                    <span style={{ fontSize: 11, color: 'var(--qs-text-faint)' }}>{tx('{visible}/{total} visible', { visible, total })}</span>
                 </div>
-                {total > 1 && <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)' }}>Front → back</span>}
+                {total > 1 && <span style={{ fontSize: 11, color: 'var(--qs-text-faint)' }}>{tx('Front → back')}</span>}
             </div>
 
             {total === 0 ? (
-                <div style={{ padding: '18px 12px', borderRadius: 10, border: '1px dashed rgba(255,255,255,0.1)', textAlign: 'center', fontSize: 11.5, color: 'rgba(255,255,255,0.4)' }}>
-                    No layers yet. Pick something from the toolbox{narrow ? ' above' : ' on the left'}, then click or drag on the canvas.
+                <div style={{ padding: '18px 12px', borderRadius: 'var(--qs-radius)', border: '1px dashed var(--qs-line-strong)', textAlign: 'center', fontSize: 12, color: 'var(--qs-text-faint)' }}>
+                    {tx(narrow
+                        ? 'No layers yet. Pick something from the toolbox above, then click or drag on the canvas.'
+                        : 'No layers yet. Pick something from the toolbox on the left, then click or drag on the canvas.')}
                 </div>
             ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${narrow ? 150 : 190}px, 1fr))`, gap: 6 }}>
-                    {[...elements].reverse().map(el => {
+                    {/* Custom elements use index 0 as the front-most layer, matching the canvas. */}
+                    {elements.map(el => {
                         const t = ELEMENT_TYPE_MAP[el.type];
-                        const kind = t?.label ?? el.type;
+                        const kind = t ? tx(t.label) : el.type;
                         return (
                             <LayerCard
                                 key={el.id}
@@ -152,8 +159,8 @@ const LayerStrip = ({
                         <LayerCard
                             key={l.id}
                             icon={<l.Icon size={16} color={l.color} />}
-                            label={l.label}
-                            kind={l.id.endsWith('Cam') ? 'Camera' : 'Component'}
+                            label={tx(l.label)}
+                            kind={tx(l.id.endsWith('Cam') ? 'Camera' : 'Component')}
                             color={l.color}
                             visible
                             selected={selectedBox === l.id}
