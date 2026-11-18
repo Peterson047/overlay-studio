@@ -428,4 +428,12 @@ export default {
     "Free preview": "Preview grátis",
     "saved in this browser only": "salvo só neste navegador",
     "Sign in and save": "Entrar e salvar",
+    "Your changes are not being saved.": "Suas alterações não estão sendo salvas.",
+    "FREE": "GRÁTIS",
+    "Search templates…": "Buscar modelos…",
+    "Price": "Preço",
+    "Free": "Grátis",
+    "Category": "Categoria",
+    "No templates match these filters.": "Nenhum modelo com esses filtros.",
+    "Clear filters": "Limpar filtros",
 };

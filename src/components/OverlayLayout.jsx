@@ -538,8 +538,10 @@ const OverlayLayout = () => {
                     if (data?._v) lastVerRef.current = data._v;
                     setSyncError(tx('Layout updated elsewhere — synced latest version.'));
                     forcePollRef.current?.();
-                } else if (res.status === 403 && (data?.code === 'PRO_REQUIRED' || data?.code === 'PROJECT_READ_ONLY')) {
-                    setProGateNotice(data?.error || tx('This layout requires the Pro plan to save or publish.'));
+                } else if (res.status === 403 && ['PRO_REQUIRED', 'PROJECT_READ_ONLY', 'OWNER_ONLY'].includes(data?.code)) {
+                    // Saving is blocked, not failing: say so plainly, since edits keep
+                    // working on screen but are not stored until the gate clears.
+                    setProGateNotice(`${data?.error || tx('This layout requires the Pro plan to save or publish.')} ${tx('Your changes are not being saved.')}`);
                 } else {
                     setSyncError(data?.error || `Failed to save layout (HTTP ${res.status})`);
                 }
@@ -945,7 +947,7 @@ const OverlayLayout = () => {
                 toast = { room: result.name, obs, copied, published: true, fresh: !!obs };
                 track('project_published', {});
             } catch (err) {
-                if (err?.code === 'PRO_REQUIRED' || err?.code === 'PROJECT_READ_ONLY') {
+                if (['PRO_REQUIRED', 'PROJECT_READ_ONLY', 'OWNER_ONLY'].includes(err?.code)) {
                     setProGateNotice(err.message);
                 } else {
                     setSyncError(err.message);
@@ -2363,8 +2365,8 @@ const OverlayLayout = () => {
                             <ChevronUp size={13} style={{ transform: 'rotate(180deg)' }} />
                         </DockBtn>
                         <div style={{ width: 1, height: 18, margin: '0 4px', background: 'var(--qs-line-strong)', flexShrink: 0 }} />
-                        <DockBtn icon onClick={() => setShowGallery(true)} title={activeLayout ? tx('Layouts — current: {name}', { name: activeLayout.name }) : tx('Layouts & templates')}>
-                            <LayoutGrid size={13} />
+                        <DockBtn icon={isNarrow} onClick={() => setShowGallery(true)} title={activeLayout ? tx('Layouts — current: {name}', { name: activeLayout.name }) : tx('Layouts & templates')}>
+                            <LayoutGrid size={13} style={isNarrow ? undefined : { marginRight: 5 }} />{!isNarrow && tx('Layouts')}
                         </DockBtn>
                         {/* Scene switcher — change scene without entering edit mode */}
                         {activeLayout && activeLayout.scenes.length > 0 && (

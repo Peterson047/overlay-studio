@@ -335,9 +335,7 @@ function localServerlessApi(env, routes) {
             method: req.method,
             headers: req.headers,
             query: Object.fromEntries(url.searchParams),
-            body: rawBuf.length
-              ? (route === 'stripe-webhook' ? rawBuf : rawBuf.toString('utf8'))
-              : undefined,
+            body: rawBuf.length ? rawBuf.toString('utf8') : undefined,
           }
           const vres = {
             status(code) { res.statusCode = code; return this },
@@ -347,6 +345,20 @@ function localServerlessApi(env, routes) {
           }
           try {
             const mod = await server.ssrLoadModule(`/api/${route}.js`)
+            // Web-standard handlers (export function POST/GET) get a real Request,
+            // like on Vercel; classic (req, res) handlers get the shim above.
+            const webHandler = mod[req.method]
+            if (typeof webHandler === 'function' && typeof mod.default !== 'function') {
+              const response = await webHandler(new Request(url, {
+                method: req.method, headers: req.headers,
+                body: rawBuf.length && !['GET', 'HEAD'].includes(req.method) ? rawBuf : undefined,
+              }))
+              res.statusCode = response.status
+              response.headers.forEach((v, k) => res.setHeader(k, v))
+              res.end(Buffer.from(await response.arrayBuffer()))
+              return
+            }
+            if (typeof mod.default !== 'function') { res.statusCode = 405; res.end(); return }
             await mod.default(vreq, vres)
           } catch (err) {
             console.error(`[local ${route}]`, err)

@@ -1,22 +1,30 @@
-import { database, endpoint, HttpError } from '../server/qorp.js';
-import { getStripeClient, handleStripeWebhook, readRawBody } from '../server/stripe.js';
+import { database, HttpError } from '../server/qorp.js';
+import { getStripeClient, handleStripeWebhook } from '../server/stripe.js';
 
-export const config = {
-    api: {
-        bodyParser: false,
-    },
-};
+// Web-standard handler on purpose: Stripe signs the exact request bytes, and
+// the Node helper `req.body` on Vercel hands back parsed JSON instead.
+// `request.arrayBuffer()` gives the untouched raw body.
+// https://vercel.com/docs/functions/functions-api-reference#read-the-raw-request-body
+const MAX_BYTES = 1_000_000;
 
-export default endpoint(async (req, res) => {
-    if (req.method !== 'POST') throw new HttpError(405, 'Método não permitido.');
-    const rawBody = await readRawBody(req);
-    const db = database();
-    const stripe = getStripeClient();
-    const result = await handleStripeWebhook({
-        db,
-        stripe,
-        rawBody,
-        signature: req.headers?.['stripe-signature'],
-    });
-    return res.json(result);
-});
+export async function POST(request) {
+    const headers = { 'Cache-Control': 'no-store' };
+    try {
+        const rawBody = Buffer.from(await request.arrayBuffer());
+        if (rawBody.length > MAX_BYTES) throw new HttpError(413, 'Payload acima do limite.');
+        const result = await handleStripeWebhook({
+            db: database(),
+            stripe: getStripeClient(),
+            rawBody,
+            signature: request.headers.get('stripe-signature') ?? undefined,
+        });
+        return Response.json(result, { headers });
+    } catch (error) {
+        const status = error?.status || 500;
+        if (status >= 500) console.error('[stripe-webhook]', error);
+        return Response.json(
+            { error: error?.status ? error.message : 'Não foi possível processar o evento.' },
+            { status, headers },
+        );
+    }
+}

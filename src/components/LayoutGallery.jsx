@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Check, ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Plus, Search, Trash2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { getTheme } from '../theme/themes';
 import { getKitTier } from '../theme/entitlements';
@@ -186,6 +186,17 @@ const ActiveBadge = () => (
     </span>
 );
 
+const FreeKitBadge = () => (
+    <span style={{
+        position: 'absolute', top: 6, right: 6,
+        background: 'rgba(13, 14, 13, 0.88)', border: '1px solid rgba(74, 222, 128, 0.5)', color: 'var(--qs-success)',
+        borderRadius: 5, padding: '2px 6px',
+        fontSize: 9.5, fontWeight: 700, fontFamily: 'var(--qs-font)', letterSpacing: '0.04em',
+    }}>
+        {tx('FREE')}
+    </span>
+);
+
 const ProKitBadge = () => (
     <span style={{
         position: 'absolute', top: 6, right: 6,
@@ -272,7 +283,7 @@ const StarterCard = ({ starter, selected, onSelect }) => {
                 {starter.isNew && (
                     <span style={{ position: 'absolute', top: 6, left: 6, background: 'rgba(250,204,21,0.92)', color: '#1a1405', borderRadius: 5, padding: '2px 6px', fontSize: 9, fontFamily: 'var(--qs-font)', fontWeight: 700 }}>{tx('New')}</span>
                 )}
-                {isPro && <ProKitBadge />}
+                {isPro ? <ProKitBadge /> : <FreeKitBadge />}
             </ScenePreview>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1, padding: '0 2px 2px' }}>
                 <span style={{ fontSize: 12, color: 'var(--qs-text)', fontWeight: 600, fontFamily: 'var(--qs-font)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -300,7 +311,7 @@ const DetailPanel = ({ kind, item, active, onPrimary }) => {
             <div style={{ position: 'relative' }}>
                 <Thumb snapshot={scenes[i]?.snapshot} fallbackTheme={theme} />
                 {active && <ActiveBadge />}
-                {isPro && <ProKitBadge />}
+                {isPro ? <ProKitBadge /> : <FreeKitBadge />}
             </div>
 
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
@@ -354,7 +365,11 @@ const TabBtn = ({ active, onClick, children, count }) => (
     </SegmentButton>
 );
 
-const LIST_GRID = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 };
+const LIST_GRID = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 10 };
+
+// Accent-insensitive search over name, tagline and tags.
+const fold = (v) => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const matchesQuery = (st, q) => !q || fold(`${st.name} ${st.tagline} ${(st.tags || []).join(' ')}`).includes(q);
 
 const LayoutGallery = ({ layouts = [], activeLayoutId, starters = [], onAddStarter, onClose, onCreate, onSwitch, onRename, onDelete }) => {
     useI18n();
@@ -362,8 +377,14 @@ const LayoutGallery = ({ layouts = [], activeLayoutId, starters = [], onAddStart
     const hasStarters = starters.length > 0 && !!onAddStarter;
     // Land on your own layouts once you have some; first-timers see templates.
     const [tab, setTab] = useState(layouts.length > 0 || !hasStarters ? 'mine' : 'templates');
-    const [selectedId, setSelectedId] = useState({ mine: activeLayoutId ?? layouts[0]?.id, templates: starters[0]?.id });
+    const [selectedId, setSelectedId] = useState({
+        mine: activeLayoutId ?? layouts[0]?.id,
+        // Open on a free template, so the first preview is one anyone can save.
+        templates: (starters.find(st => getKitTier(st) !== 'pro') ?? starters[0])?.id,
+    });
     const [category, setCategory] = useState('all');
+    const [price, setPrice] = useState('all'); // all | free | pro
+    const [query, setQuery] = useState('');
     const [narrow, setNarrow] = useState(() => (
         typeof window !== 'undefined' && typeof window.matchMedia === 'function'
             ? window.matchMedia('(max-width: 860px)').matches
@@ -387,9 +408,14 @@ const LayoutGallery = ({ layouts = [], activeLayoutId, starters = [], onAddStart
 
     const create = () => { onCreate(newName); setNewName(''); };
 
-    const shownStarters = category === 'all' ? starters
-        : category === 'new' ? starters.filter(st => st.isNew)
-        : starters.filter(st => st.tags?.includes(category));
+    const q = fold(query.trim());
+    const byPrice = (st) => price === 'all' || (getKitTier(st) === 'pro') === (price === 'pro');
+    const inCategory = (st, cat) => cat === 'all' || (cat === 'new' ? st.isNew : st.tags?.includes(cat));
+    const priced = starters.filter(st => byPrice(st) && matchesQuery(st, q));
+    // Free first inside every view, so the no-cost options are always on top.
+    const shownStarters = priced.filter(st => inCategory(st, category))
+        .sort((a, b) => (getKitTier(a) === 'pro') - (getKitTier(b) === 'pro'));
+    const freeCount = starters.filter(st => getKitTier(st) !== 'pro').length;
     const list = tab === 'mine' ? layouts : shownStarters;
     const selected = list.find(x => x.id === selectedId[tab]) ?? list[0] ?? null;
     const select = (id) => setSelectedId(s => ({ ...s, [tab]: id }));
@@ -453,24 +479,54 @@ const LayoutGallery = ({ layouts = [], activeLayoutId, starters = [], onAddStart
                 )}
 
                 {tab === 'templates' && (
-                    /* Category filter — the template library groups by stream type */
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '10px 16px', borderBottom: '1px solid var(--qs-line)' }}>
-                        {[{ id: 'all', label: 'All' }, ...(starters.some(st => st.isNew) ? [{ id: 'new', label: 'New' }] : []), ...TEMPLATE_CATEGORIES].map(cat => {
-                            const on = category === cat.id;
-                            const n = cat.id === 'all' ? starters.length : cat.id === 'new' ? starters.filter(st => st.isNew).length : starters.filter(st => st.tags?.includes(cat.id)).length;
-                            return (
-                                <SegmentButton key={cat.id} size="sm" active={on} onClick={() => setCategory(cat.id)}>
-                                    {tx(cat.label)} <span style={{ opacity: 0.6 }}>{n}</span>
-                                </SegmentButton>
-                            );
-                        })}
+                    /* Search, price and category — free kits are one click away */
+                    <div style={{ display: 'grid', gap: 10, padding: '12px 16px', borderBottom: '1px solid var(--qs-line)' }}>
+                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                            <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 0 }}>
+                                <Search size={14} aria-hidden="true" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--qs-text-faint)', pointerEvents: 'none', zIndex: 1 }} />
+                                <TextField
+                                    value={query}
+                                    onChange={setQuery}
+                                    placeholder={tx('Search templates…')}
+                                    aria-label={tx('Search templates…')}
+                                    style={{ paddingLeft: 30, height: 36 }}
+                                />
+                            </div>
+                            <div role="group" aria-label={tx('Price')} style={{ display: 'flex', gap: 4 }}>
+                                {[
+                                    { id: 'all', label: tx('All'), n: starters.length },
+                                    { id: 'free', label: tx('Free'), n: freeCount },
+                                    { id: 'pro', label: 'Pro', n: starters.length - freeCount },
+                                ].map(opt => (
+                                    <SegmentButton key={opt.id} active={price === opt.id} onClick={() => setPrice(opt.id)} style={{ height: 36, padding: '0 14px' }}>
+                                        {opt.id === 'free' && <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--qs-success)' }} />}
+                                        {opt.label} <span style={{ opacity: 0.6 }}>{opt.n}</span>
+                                    </SegmentButton>
+                                ))}
+                            </div>
+                        </div>
+                        <div role="group" aria-label={tx('Category')} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {[{ id: 'all', label: 'All' }, ...(starters.some(st => st.isNew) ? [{ id: 'new', label: 'New' }] : []), ...TEMPLATE_CATEGORIES].map(cat => {
+                                const n = priced.filter(st => inCategory(st, cat.id)).length;
+                                return (
+                                    <SegmentButton key={cat.id} size="sm" active={category === cat.id} disabled={n === 0 && category !== cat.id} onClick={() => setCategory(cat.id)}>
+                                        {tx(cat.label)} <span style={{ opacity: 0.6 }}>{n}</span>
+                                    </SegmentButton>
+                                );
+                            })}
+                        </div>
                     </div>
                 )}
 
                 {/* Body — list (2 columns) | preview. On narrow viewports, preview stays on top above the list. */}
                 <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: narrow ? 'column' : 'row', overflowY: narrow ? 'auto' : 'hidden' }}>
-                    <div style={{ flex: narrow ? 'none' : '1 1 380px', minWidth: 0, maxHeight: narrow ? 'none' : '100%', overflowY: narrow ? 'visible' : 'auto', padding: 14, boxSizing: 'border-box', order: narrow ? 2 : 0 }}>
-                        {list.length === 0 ? (
+                    <div style={{ flex: narrow ? 'none' : '1 1 560px', minWidth: 0, maxHeight: narrow ? 'none' : '100%', overflowY: narrow ? 'visible' : 'auto', padding: 14, boxSizing: 'border-box', order: narrow ? 2 : 0 }}>
+                        {tab === 'templates' && list.length === 0 && starters.length > 0 ? (
+                            <div style={{ textAlign: 'center', color: 'var(--qs-text-dim)', fontSize: 13, fontFamily: 'var(--qs-font)', lineHeight: 1.7, padding: '60px 20px' }}>
+                                {tx('No templates match these filters.')}<br />
+                                <button type="button" className="qs-inline-link" onClick={() => { setQuery(''); setPrice('all'); setCategory('all'); }}>{tx('Clear filters')}</button>
+                            </div>
+                        ) : list.length === 0 ? (
                             <div style={{ textAlign: 'center', color: 'var(--qs-text-dim)', fontSize: 12, fontFamily: 'var(--qs-font)', lineHeight: 1.8, padding: '60px 20px' }}>
                                 {tx('No saved layouts yet.')}<br />
                                 {hasStarters && <>{tx('Pick one from')} <button type="button" onClick={() => setTab('templates')} className="qs-inline-link">{tx('Templates')}</button>, {tx('or name')}</>}
@@ -496,7 +552,7 @@ const LayoutGallery = ({ layouts = [], activeLayoutId, starters = [], onAddStart
                     </div>
 
                     {selected && (
-                        <div style={{ flex: narrow ? 'none' : '1 1 420px', minWidth: 0, maxHeight: narrow ? 'none' : '100%', overflowY: narrow ? 'visible' : 'auto', padding: 16, boxSizing: 'border-box', borderLeft: narrow ? 'none' : '1px solid var(--qs-line)', borderBottom: narrow ? '1px solid var(--qs-line)' : 'none', background: 'rgba(255,255,255,0.015)', order: narrow ? 1 : 0 }}>
+                        <div style={{ flex: narrow ? 'none' : '0 0 380px', minWidth: 0, maxHeight: narrow ? 'none' : '100%', overflowY: narrow ? 'visible' : 'auto', padding: 16, boxSizing: 'border-box', borderLeft: narrow ? 'none' : '1px solid var(--qs-line)', borderBottom: narrow ? '1px solid var(--qs-line)' : 'none', background: 'rgba(255,255,255,0.015)', order: narrow ? 1 : 0 }}>
                             <DetailPanel
                                 key={`${tab}:${selected.id}`}
                                 kind={tab}

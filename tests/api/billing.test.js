@@ -16,7 +16,17 @@ vi.mock('stripe', () => {
 });
 
 const { default: billingHandler } = await import('../../api/billing.js');
-const { default: webhookHandler } = await import('../../api/stripe-webhook.js');
+const { POST: webhookPost } = await import('../../api/stripe-webhook.js');
+// The webhook is a web-standard handler (raw body for Stripe signatures);
+// adapt it to the req/res shape the shared test helper expects.
+const webhookHandler = async (req, res) => {
+    const response = await webhookPost(new Request('http://localhost/api/stripe-webhook', {
+        method: req.method,
+        headers: req.headers,
+        body: req.body,
+    }));
+    res.status(response.status).json(await response.json());
+};
 
 const USER_FREE = { id: 'user-free-1', email: 'free@example.com' };
 const USER_OWNER = { id: 'user-owner-1', email: 'owner@example.com' };

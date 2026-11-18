@@ -40,3 +40,6 @@ promo-videos/
 coverage/
 test-results/
 playwright-report/
+
+# Local agent settings
+.claude/settings.local.json
